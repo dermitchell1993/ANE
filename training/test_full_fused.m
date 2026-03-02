@@ -7,6 +7,7 @@
 #import <IOSurface/IOSurface.h>
 #import <mach/mach_time.h>
 #include <math.h>
+#include "ane_compat.h"
 
 #define DIM 768
 #define HEADS 12
@@ -104,6 +105,8 @@ int main() {
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();
+        ane_detect_platform();
+        ane_print_platform();
         mach_timebase_info(&g_tb);
 
         srand48(42);
@@ -130,10 +133,10 @@ int main() {
             float scale_val = 1.0f / sqrtf((float)HD);
 
             NSString *mil = [NSString stringWithFormat:
-                @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-                "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-                "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-                "    func main<ios18>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+                @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+                "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+                "{\"coremltools-version\", \"\"}})]\n{\n"
+                "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
                 // Conv boilerplate
                 "        string pt = const()[name = string(\"pt\"), val = string(\"valid\")];\n"
                 "        tensor<int32, [2]> st = const()[name = string(\"st\"), val = tensor<int32, [2]>([1, 1])];\n"
@@ -189,6 +192,7 @@ int main() {
                 "        tensor<fp16, [1, %d, 1, %d]> out = conv(dilations = dl, groups = gr1, pad = pd, "
                 "pad_type = pt, strides = st, weight = Wout, x = attn_flat)[name = string(\"co\")];\n"
                 "    } -> (out);\n}\n",
+                g_ane_platform.mil_program, ane_mil_target(),
                 DIM, SEQ,                              // input
                 DIM,DIM,DIM,DIM, DIM,DIM,DIM,DIM,      // Wq, Wk
                 DIM,DIM,DIM,DIM, DIM,DIM,DIM,DIM,      // Wv, Wo
@@ -317,10 +321,10 @@ int main() {
         printf("\n=== Test 2: Fused FFN benchmark ===\n");
         {
             NSString *mil = [NSString stringWithFormat:
-                @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-                "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-                "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-                "    func main<ios18>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+                @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+                "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+                "{\"coremltools-version\", \"\"}})]\n{\n"
+                "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
                 "        string pt = const()[name = string(\"pt\"), val = string(\"valid\")];\n"
                 "        tensor<int32, [2]> st = const()[name = string(\"st\"), val = tensor<int32, [2]>([1, 1])];\n"
                 "        tensor<int32, [4]> pd = const()[name = string(\"pd\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
@@ -342,6 +346,7 @@ int main() {
                 "        tensor<fp16, [1, %d, 1, %d]> out = conv(dilations = dl, groups = gr, pad = pd, "
                 "pad_type = pt, strides = st, weight = W2, x = gate)[name = string(\"c2\")];\n"
                 "    } -> (out);\n}\n",
+                g_ane_platform.mil_program, ane_mil_target(),
                 DIM, SEQ,
                 HIDDEN,DIM,HIDDEN,DIM, HIDDEN,DIM,HIDDEN,DIM, DIM,HIDDEN,DIM,HIDDEN,
                 HIDDEN,SEQ, HIDDEN,SEQ, HIDDEN,SEQ, HIDDEN,SEQ, HIDDEN,SEQ, DIM,SEQ];

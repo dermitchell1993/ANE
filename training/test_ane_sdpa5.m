@@ -4,6 +4,7 @@
 #import <dlfcn.h>
 #import <IOSurface/IOSurface.h>
 #include <math.h>
+#include "ane_compat.h"
 
 #define HEADS 12
 #define HD 64
@@ -88,6 +89,8 @@ int main() {
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();
+        ane_detect_platform();
+        ane_print_platform();
 
         srand48(42);
         int total = HEADS * SEQ * HD;
@@ -187,14 +190,15 @@ int main() {
         printf("Test 1: no mask\n");
         {
             NSString *mil = [NSString stringWithFormat:
-                @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-                "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-                "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-                "    func main<ios18>(tensor<fp16, [1, %d, %d, %d]> q, "
+                @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+                "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+                "{\"coremltools-version\", \"\"}})]\n{\n"
+                "    func main<%s>(tensor<fp16, [1, %d, %d, %d]> q, "
                 "tensor<fp16, [1, %d, %d, %d]> k, tensor<fp16, [1, %d, %d, %d]> v) {\n"
                 "        tensor<fp16, [1, %d, %d, %d]> att = scaled_dot_product_attention("
                 "query = q, key = k, value = v)[name = string(\"sdpa\")];\n"
                 "    } -> (att);\n}\n",
+                g_ane_platform.mil_program, ane_mil_target(),
                 HEADS, SEQ, HD, HEADS, SEQ, HD, HEADS, SEQ, HD, HEADS, SEQ, HD];
             Model m = compile_model(mil, nil);
             if (m.model) {
@@ -209,15 +213,16 @@ int main() {
         {
             NSString *maskStr = build_inline_causal_mask(SEQ);
             NSString *mil = [NSString stringWithFormat:
-                @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-                "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-                "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-                "    func main<ios18>(tensor<fp16, [1, %d, %d, %d]> q, "
+                @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+                "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+                "{\"coremltools-version\", \"\"}})]\n{\n"
+                "    func main<%s>(tensor<fp16, [1, %d, %d, %d]> q, "
                 "tensor<fp16, [1, %d, %d, %d]> k, tensor<fp16, [1, %d, %d, %d]> v) {\n"
                 "        %@ mask = const()[name = string(\"mask\"), val = %@];\n"
                 "        tensor<fp16, [1, %d, %d, %d]> att = scaled_dot_product_attention("
                 "query = q, key = k, value = v, attn_mask = mask)[name = string(\"sdpa\")];\n"
                 "    } -> (att);\n}\n",
+                g_ane_platform.mil_program, ane_mil_target(),
                 HEADS, SEQ, HD, HEADS, SEQ, HD, HEADS, SEQ, HD,
                 [NSString stringWithFormat:@"tensor<fp16, [1, 1, %d, %d]>", SEQ, SEQ], maskStr,
                 HEADS, SEQ, HD];
@@ -233,16 +238,17 @@ int main() {
         printf("\nTest 3: BLOBFILE causal mask\n");
         {
             NSString *mil = [NSString stringWithFormat:
-                @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-                "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-                "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-                "    func main<ios18>(tensor<fp16, [1, %d, %d, %d]> q, "
+                @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+                "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+                "{\"coremltools-version\", \"\"}})]\n{\n"
+                "    func main<%s>(tensor<fp16, [1, %d, %d, %d]> q, "
                 "tensor<fp16, [1, %d, %d, %d]> k, tensor<fp16, [1, %d, %d, %d]> v) {\n"
                 "        tensor<fp16, [1, 1, %d, %d]> mask = const()[name = string(\"mask\"), "
                 "val = tensor<fp16, [1, 1, %d, %d]>(BLOBFILE(path = string(\"@model_path/weights/mask.bin\"), offset = uint64(64)))];\n"
                 "        tensor<fp16, [1, %d, %d, %d]> att = scaled_dot_product_attention("
                 "query = q, key = k, value = v, attn_mask = mask)[name = string(\"sdpa\")];\n"
                 "    } -> (att);\n}\n",
+                g_ane_platform.mil_program, ane_mil_target(),
                 HEADS, SEQ, HD, HEADS, SEQ, HD, HEADS, SEQ, HD,
                 SEQ, SEQ, SEQ, SEQ, HEADS, SEQ, HD];
             NSDictionary *wd = @{@"@model_path/weights/mask.bin": @{@"offset":@0, @"data":build_mask_blob(SEQ)}};
@@ -258,15 +264,16 @@ int main() {
         printf("\nTest 4: mask as runtime input\n");
         {
             NSString *mil = [NSString stringWithFormat:
-                @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-                "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-                "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-                "    func main<ios18>(tensor<fp16, [1, %d, %d, %d]> q, "
+                @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+                "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+                "{\"coremltools-version\", \"\"}})]\n{\n"
+                "    func main<%s>(tensor<fp16, [1, %d, %d, %d]> q, "
                 "tensor<fp16, [1, %d, %d, %d]> k, tensor<fp16, [1, %d, %d, %d]> v, "
                 "tensor<fp16, [1, 1, %d, %d]> mask) {\n"
                 "        tensor<fp16, [1, %d, %d, %d]> att = scaled_dot_product_attention("
                 "query = q, key = k, value = v, attn_mask = mask)[name = string(\"sdpa\")];\n"
                 "    } -> (att);\n}\n",
+                g_ane_platform.mil_program, ane_mil_target(),
                 HEADS, SEQ, HD, HEADS, SEQ, HD, HEADS, SEQ, HD,
                 SEQ, SEQ, HEADS, SEQ, HD];
             Model m = compile_model(mil, nil);

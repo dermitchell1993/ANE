@@ -3,10 +3,10 @@
 #pragma once
 #include "stories_io.h"
 
-#define MIL_HDR \
-    @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, " \
-    "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, " \
-    "{\"coremltools-version\", \"9.0\"}})]\n{\n"
+// MIL_HDR is now a function returning the header with the correct program version.
+// Use ane_mil_header() from ane_compat.h for runtime-detected version.
+// This macro is kept for backward compat but uses the detected platform.
+#define MIL_HDR ane_mil_header()
 #define CONV_CONST \
     "        string pt = const()[name=string(\"pt\"), val=string(\"valid\")];\n" \
     "        tensor<int32, [2]> st = const()[name=string(\"st\"), val=tensor<int32, [2]>([1,1])];\n" \
@@ -20,7 +20,7 @@ static NSString *gen_sdpa_fwd_taps(void) {
     float invd = 1.0f/(float)DIM;
     NSMutableString *m = [NSMutableString string];
     [m appendString:MIL_HDR];
-    [m appendFormat:@"    func main<ios18>(tensor<fp16, [1, %d, 1, %d]> x) {\n", DIM, SEQ];
+    [m appendFormat:@"    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n", ane_mil_target(), DIM, SEQ];
     [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> sq = mul(x=x,y=x)[name=string(\"sq\")];\n", DIM, SEQ];
     [m appendFormat:@"        tensor<int32, [1]> rax = const()[name=string(\"rax\"), val=tensor<int32, [1]>([1])];\n"];
     [m appendFormat:@"        bool kd = const()[name=string(\"kd\"), val=bool(true)];\n"];
@@ -76,7 +76,7 @@ static NSString *gen_ffn_fwd_taps(void) {
     float invd = 1.0f/(float)DIM;
     NSMutableString *m = [NSMutableString string];
     [m appendString:MIL_HDR];
-    [m appendFormat:@"    func main<ios18>(tensor<fp16, [1, %d, 1, %d]> x) {\n", DIM, SEQ];
+    [m appendFormat:@"    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n", ane_mil_target(), DIM, SEQ];
     [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> sq = mul(x=x,y=x)[name=string(\"sq\")];\n", DIM, SEQ];
     [m appendFormat:@"        tensor<int32, [1]> rax = const()[name=string(\"rax\"), val=tensor<int32, [1]>([1])];\n"];
     [m appendFormat:@"        bool kd = const()[name=string(\"kd\"), val=bool(true)];\n"];
@@ -111,7 +111,7 @@ static NSString *gen_ffn_fwd_taps(void) {
 static NSString *gen_ffn_bwd(void) {
     NSMutableString *m = [NSMutableString string];
     [m appendString:MIL_HDR];
-    [m appendFormat:@"    func main<ios18>(tensor<fp16, [1, %d, 1, %d]> x) {\n", DIM+2*HIDDEN, SEQ];
+    [m appendFormat:@"    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n", ane_mil_target(), DIM+2*HIDDEN, SEQ];
     [m appendString:@CONV_CONST];
     [m appendString:@"        tensor<int32, [4]> bd = const()[name=string(\"bd\"), val=tensor<int32, [4]>([0,0,0,0])];\n"];
     [m appendFormat:@"        tensor<int32, [4]> sd = const()[name=string(\"sd\"), val=tensor<int32, [4]>([1,%d,1,%d])];\n", DIM, SEQ];
@@ -149,7 +149,7 @@ static NSString *gen_ffn_bwd(void) {
 static NSString *gen_qkvb(void) {
     NSMutableString *m = [NSMutableString string];
     [m appendString:MIL_HDR];
-    [m appendFormat:@"    func main<ios18>(tensor<fp16, [1, %d, 1, %d]> x) {\n", 3*DIM, SEQ];
+    [m appendFormat:@"    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n", ane_mil_target(), 3*DIM, SEQ];
     [m appendString:@CONV_CONST];
     [m appendFormat:@"        tensor<int32, [4]> sz = const()[name=string(\"sz\"), val=tensor<int32, [4]>([1,%d,1,%d])];\n", DIM, SEQ];
     [m appendString:@"        tensor<int32, [4]> b0 = const()[name=string(\"b0\"), val=tensor<int32, [4]>([0,0,0,0])];\n"];
@@ -175,7 +175,7 @@ static NSString *gen_sdpa_bwd1(void) {
     float sc = 1.0f/sqrtf((float)HD);
     NSMutableString *m = [NSMutableString string];
     [m appendString:MIL_HDR];
-    [m appendFormat:@"    func main<ios18>(tensor<fp16, [1, %d, 1, %d]> x) {\n", 4*DIM, SEQ];
+    [m appendFormat:@"    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n", ane_mil_target(), 4*DIM, SEQ];
     [m appendString:@CONV_CONST];
     [m appendFormat:@"        tensor<int32, [4]> sz = const()[name=string(\"sz\"), val=tensor<int32, [4]>([1,%d,1,%d])];\n", DIM, SEQ];
     [m appendString:@"        tensor<int32, [4]> b0 = const()[name=string(\"b0\"), val=tensor<int32, [4]>([0,0,0,0])];\n"];
@@ -228,7 +228,7 @@ static NSString *gen_sdpa_bwd2(void) {
     int bwd2_in = 2*SCORE_CH + 2*DIM;
     NSMutableString *m = [NSMutableString string];
     [m appendString:MIL_HDR];
-    [m appendFormat:@"    func main<ios18>(tensor<fp16, [1, %d, 1, %d]> x) {\n", bwd2_in, SEQ];
+    [m appendFormat:@"    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n", ane_mil_target(), bwd2_in, SEQ];
     [m appendFormat:@"        tensor<int32, [4]> sz_sc = const()[name=string(\"szsc\"), val=tensor<int32, [4]>([1,%d,1,%d])];\n", SCORE_CH, SEQ];
     [m appendString:@"        tensor<int32, [4]> b0 = const()[name=string(\"b0\"), val=tensor<int32, [4]>([0,0,0,0])];\n"];
     [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> pf = slice_by_size(x=x,begin=b0,size=sz_sc)[name=string(\"s0\")];\n", SCORE_CH,SEQ];
