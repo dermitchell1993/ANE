@@ -8,6 +8,7 @@
 #import <IOSurface/IOSurface.h>
 #import <mach/mach_time.h>
 #include <math.h>
+#include "ane_compat.h"
 
 #define DIM 768
 #define SEQ 64
@@ -86,10 +87,10 @@ static void cleanup_kern(Kern *k) {
 // Fused QKV: 3 convs + concat in one MIL
 static NSString *gen_fused_qkv_mil(void) {
     return [NSString stringWithFormat:
-        @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-        "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-        "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-        "    func main<ios18>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+        @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+        "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+        "{\"coremltools-version\", \"\"}})]\n{\n"
+        "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
         "        string d1 = const()[name = string(\"d1\"), val = string(\"fp16\")];\n"
         "        tensor<fp16, [1, %d, 1, %d]> x16 = cast(dtype = d1, x = x)[name = string(\"cx\")];\n"
         "        string pt = const()[name = string(\"pt\"), val = string(\"valid\")];\n"
@@ -115,6 +116,7 @@ static NSString *gen_fused_qkv_mil(void) {
         "        string d2 = const()[name = string(\"d2\"), val = string(\"fp32\")];\n"
         "        tensor<fp32, [1, %d, 1, %d]> y = cast(dtype = d2, x = qkv)[name = string(\"co\")];\n"
         "    } -> (y);\n}\n",
+        g_ane_platform.mil_program, ane_mil_target(),
         DIM, SEQ, DIM, SEQ,
         DIM, DIM, DIM, DIM,  // Wq
         DIM, DIM, DIM, DIM,  // Wk
@@ -129,10 +131,10 @@ static NSString *gen_fused_qkv_mil(void) {
 // Single conv MIL for comparison
 static NSString *gen_single_mil(void) {
     return [NSString stringWithFormat:
-        @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-        "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-        "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-        "    func main<ios18>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+        @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+        "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+        "{\"coremltools-version\", \"\"}})]\n{\n"
+        "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
         "        string d1 = const()[name = string(\"d1\"), val = string(\"fp16\")];\n"
         "        tensor<fp16, [1, %d, 1, %d]> x16 = cast(dtype = d1, x = x)[name = string(\"cx\")];\n"
         "        tensor<fp16, [%d, %d, 1, 1]> W = const()[name = string(\"W\"), "
@@ -147,6 +149,7 @@ static NSString *gen_single_mil(void) {
         "        string d2 = const()[name = string(\"d2\"), val = string(\"fp32\")];\n"
         "        tensor<fp32, [1, %d, 1, %d]> y = cast(dtype = d2, x = y16)[name = string(\"co\")];\n"
         "    } -> (y);\n}\n",
+        g_ane_platform.mil_program, ane_mil_target(),
         DIM, SEQ, DIM, SEQ, DIM, DIM, DIM, DIM, DIM, SEQ, DIM, SEQ];
 }
 
@@ -154,6 +157,8 @@ int main() {
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();
+        ane_detect_platform();
+        ane_print_platform();
         mach_timebase_info(&g_tb);
 
         printf("=== Fused QKV vs 3x Separate Convs ===\n");
