@@ -37,8 +37,10 @@ probes: $(PROBES)
 tokenize:
 	python3 tokenize.py
 
+test_pipeline_unit: test_pipeline_unit.c $(HEADERS_PIPELINE)
+	cc -O2 -Wall -o $@ $< -lm
+
 clean:
-	rm -f train train_large train_pipeline $(PROBES)
+	rm -f train train_large train_pipeline test_pipeline_unit $(PROBES)
 
 .PHONY: clean tokenize probes
-

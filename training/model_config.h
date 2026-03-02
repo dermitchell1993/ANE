@@ -27,6 +27,7 @@ typedef struct {
     int kernels_per_layer;  // weight-bearing kernels per layer (currently 5)
     int static_per_layer;   // weight-free kernels per layer (sdpaBwd2 = 1)
     int accum_steps;        // gradient accumulation steps per compile batch
+    float headroom_pct;     // safety margin as fraction of budget (0.0-1.0, default 0.10)
 } CompileConfig;
 
 typedef struct {
@@ -118,8 +119,9 @@ static inline size_t total_model_bytes(const ModelConfig *cfg) {
 
 // Compute how many layers can fit in one compile batch
 static int max_layers_per_compile(const CompileConfig *cc) {
-    // Reserve some headroom (90% of budget) for safety
-    int usable = (int)(cc->compile_budget * 0.9);
+    float headroom = (cc->headroom_pct > 0.0f && cc->headroom_pct < 1.0f)
+                   ? cc->headroom_pct : 0.10f;
+    int usable = (int)(cc->compile_budget * (1.0f - headroom));
     int per_layer = cc->kernels_per_layer + cc->static_per_layer;
     if (per_layer <= 0) return 1;
     return usable / per_layer;
@@ -232,7 +234,7 @@ static ModelConfig model_config_stories110m(void) {
     };
     cfg.compile = (CompileConfig){
         .compile_budget = 119, .kernels_per_layer = 5,
-        .static_per_layer = 1, .accum_steps = 10
+        .static_per_layer = 1, .accum_steps = 10, .headroom_pct = 0.10f
     };
     model_dims_init(&cfg.dims);
     return cfg;
@@ -247,7 +249,7 @@ static ModelConfig model_config_stories42m(void) {
     };
     cfg.compile = (CompileConfig){
         .compile_budget = 119, .kernels_per_layer = 5,
-        .static_per_layer = 1, .accum_steps = 10
+        .static_per_layer = 1, .accum_steps = 10, .headroom_pct = 0.10f
     };
     model_dims_init(&cfg.dims);
     return cfg;
@@ -262,7 +264,7 @@ static ModelConfig model_config_llama_1b(void) {
     };
     cfg.compile = (CompileConfig){
         .compile_budget = 119, .kernels_per_layer = 5,
-        .static_per_layer = 1, .accum_steps = 4
+        .static_per_layer = 1, .accum_steps = 4, .headroom_pct = 0.10f
     };
     model_dims_init(&cfg.dims);
     return cfg;
@@ -277,7 +279,7 @@ static ModelConfig model_config_llama_7b(void) {
     };
     cfg.compile = (CompileConfig){
         .compile_budget = 119, .kernels_per_layer = 5,
-        .static_per_layer = 1, .accum_steps = 2
+        .static_per_layer = 1, .accum_steps = 2, .headroom_pct = 0.10f
     };
     model_dims_init(&cfg.dims);
     return cfg;
@@ -303,8 +305,8 @@ static ModelConfig model_config_from_args(int argc, char *argv[]) {
         else if (strcmp(argv[i], "--vocab") == 0 && i+1 < argc) cfg.dims.vocab_size = atoi(argv[++i]);
         else if (strcmp(argv[i], "--budget") == 0 && i+1 < argc) cfg.compile.compile_budget = atoi(argv[++i]);
         else if (strcmp(argv[i], "--accum") == 0 && i+1 < argc) cfg.compile.accum_steps = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--headroom") == 0 && i+1 < argc) cfg.compile.headroom_pct = atof(argv[++i]);
     }
     model_dims_init(&cfg.dims);
     return cfg;
 }
-

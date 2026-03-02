@@ -263,6 +263,7 @@ static MmapState *mmap_state_create(const char *path, const ModelConfig *cfg) {
     if (base == MAP_FAILED) { perror("mmap_state_create: mmap"); close(fd); return NULL; }
 
     MmapState *ms = (MmapState *)calloc(1, sizeof(MmapState));
+    if (!ms) { perror("mmap_state_create: calloc"); munmap(base, total); close(fd); return NULL; }
     ms->fd = fd;
     ms->base = base;
     ms->size = total;
@@ -308,15 +309,32 @@ static MmapState *mmap_state_open(const char *path) {
     void *base = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (base == MAP_FAILED) { perror("mmap_state_open: mmap"); close(fd); return NULL; }
 
+    if ((size_t)st.st_size < sizeof(MmapHeader)) {
+        fprintf(stderr, "mmap_state_open: file too small (%lld bytes)\n", (long long)st.st_size);
+        munmap(base, st.st_size);
+        close(fd);
+        return NULL;
+    }
+
     MmapHeader *h = (MmapHeader *)base;
     if (h->sentinel != MMAP_SENTINEL || h->version != MMAP_VERSION) {
-        fprintf(stderr, "mmap_state_open: invalid header\n");
+        fprintf(stderr, "mmap_state_open: invalid header (sentinel=0x%08x version=%d)\n",
+                h->sentinel, h->version);
+        munmap(base, st.st_size);
+        close(fd);
+        return NULL;
+    }
+
+    if (h->total_size != 0 && (size_t)st.st_size < h->total_size) {
+        fprintf(stderr, "mmap_state_open: file truncated (expected %zu, got %lld)\n",
+                h->total_size, (long long)st.st_size);
         munmap(base, st.st_size);
         close(fd);
         return NULL;
     }
 
     MmapState *ms = (MmapState *)calloc(1, sizeof(MmapState));
+    if (!ms) { perror("mmap_state_open: calloc"); munmap(base, st.st_size); close(fd); return NULL; }
     ms->fd = fd;
     ms->base = base;
     ms->size = st.st_size;
@@ -328,9 +346,11 @@ static MmapState *mmap_state_open(const char *path) {
 // Close and unmap (does NOT delete the file)
 static void mmap_state_close(MmapState *ms) {
     if (!ms) return;
-    msync(ms->base, ms->size, MS_SYNC);
-    munmap(ms->base, ms->size);
-    close(ms->fd);
+    if (ms->base && ms->base != MAP_FAILED) {
+        if (msync(ms->base, ms->size, MS_SYNC) < 0) perror("mmap_state_close: msync");
+        if (munmap(ms->base, ms->size) < 0) perror("mmap_state_close: munmap");
+    }
+    if (ms->fd >= 0) close(ms->fd);
     free(ms);
 }
 
