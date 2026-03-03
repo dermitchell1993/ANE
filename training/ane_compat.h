@@ -187,7 +187,9 @@ static ANEPlatform ane_detect_platform(void) {
 }
 
 // Print detected platform info (call after ane_detect_platform)
-static void ane_print_platform(const ANEPlatform *p) {
+static void ane_print_platform(void) {
+    if (!g_ane_platform_detected) ane_detect_platform();
+    const ANEPlatform *p = &g_ane_platform;
     printf("=== ANE Platform ===\n");
     printf("  Chip:       %s (%s)\n", _ane_chip_name_str(p->chip), p->chip_name);
     printf("  macOS:      %d.%d\n", p->macos_major, p->macos_minor);
@@ -220,4 +222,3 @@ static double ane_peak_tflops(void) {
     if (!g_ane_platform_detected) ane_detect_platform();
     return g_ane_platform.ane_peak_tflops;
 }
-

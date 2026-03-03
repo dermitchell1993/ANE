@@ -107,7 +107,7 @@ int main() {
         char l[64]; snprintf(l,64,"%dx conv %dch sp%d",d,c,s);
         double ms=bench(c,s,d);
         double tf=ms>0?gf/ms:0;
-        if(ms>0)printf("%-28s %6.1f  %6.2f  %7.3f ms %6.2f  %5.1f%%\n",l,w,gf,ms,tf,tf/0.019*100);
+        if(ms>0)printf("%-28s %6.1f  %6.2f  %7.3f ms %6.2f  %5.1f%%\n",l,w,gf,ms,tf,tf/ane_peak_tflops()*100);
         else printf("%-28s %6.1f  %6.2f  FAIL(%.0f)\n",l,w,gf,ms);
     }
     return 0;
