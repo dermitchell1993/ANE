@@ -151,8 +151,9 @@ static int model_load_weights(Model *m, const char *path) {
 static ANEKernel *compile_conv_kernel(const float *weights, int in_ch, int out_ch, int spatial) {
     NSData *wb = mil_build_weight_blob(weights, out_ch, in_ch);
     NSString *mil = mil_gen_conv(in_ch, out_ch, spatial);
-    size_t inBytes = (size_t)in_ch * spatial * 4;
-    size_t outBytes = (size_t)out_ch * spatial * 4;
+    size_t bpe = g_fp16_io ? 2 : 4;
+    size_t inBytes = (size_t)in_ch * spatial * bpe;
+    size_t outBytes = (size_t)out_ch * spatial * bpe;
     return ane_compile([mil dataUsingEncoding:NSUTF8StringEncoding], wb, 1, &inBytes, 1, &outBytes);
 }
 
