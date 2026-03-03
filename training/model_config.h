@@ -56,7 +56,7 @@ typedef struct {
 // ===== Derived dimension helpers =====
 
 static void model_dims_init(ModelDims *d) {
-    d->head_dim = d->dim / d->n_heads;
+    d->head_dim = (d->n_heads > 0) ? d->dim / d->n_heads : 0;
     d->kv_dim = d->head_dim * d->n_kv_heads;
     d->score_ch = d->n_heads * d->seq_len;
 }
@@ -111,7 +111,9 @@ static inline size_t total_model_bytes(const ModelConfig *cfg) {
     size_t global = (size_t)d->dim * sizeof(float)                  // rms_final
                   + (size_t)d->vocab_size * d->dim * sizeof(float)  // embed
                   + (size_t)d->dim * 2 * sizeof(float)              // rms_final adam
-                  + (size_t)d->vocab_size * d->dim * 2 * sizeof(float); // embed adam
+                  + (size_t)d->vocab_size * d->dim * 2 * sizeof(float)  // embed adam
+                  + (size_t)d->dim * sizeof(float)                  // rms_final grad
+                  + (size_t)d->vocab_size * d->dim * sizeof(float); // embed grad
     return per_layer * d->n_layers + global;
 }
 

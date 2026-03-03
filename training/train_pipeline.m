@@ -124,7 +124,7 @@ int main(int argc, char *argv[]) {
             printf("\n");
 
             // Print checkpoint policy
-            CheckpointManager cm = checkpoint_init(ckpt_policy, &cfg, &plan);
+            CheckpointManager cm = checkpoint_init(ckpt_policy, &cfg, &plan, 0);
             checkpoint_print(&cm, &cfg.dims);
             printf("\n");
 
@@ -195,7 +195,7 @@ int main(int argc, char *argv[]) {
                         printf("    [exec] Would restart process to reset compile budget\n");
                         printf("           Saving scheduler state to mmap, calling exec()\n");
                         // In dry-run, just reset the budget and continue
-                        sched.budget = budget_init(cfg.compile.compile_budget);
+                        sched.budget = budget_init(&cfg.compile);
                         sched.needs_restart = false;
                         break;
 
@@ -255,4 +255,3 @@ int main(int argc, char *argv[]) {
     }
     return 0;
 }
-

@@ -27,8 +27,9 @@ typedef struct {
 
 // ===== Initialization =====
 
+// custom_interval: used for CKPT_EVERY_N (pass 0 for default=4, ignored for other policies)
 static CheckpointManager checkpoint_init(CheckpointPolicy policy, const ModelConfig *cfg,
-                                          const PipelinePlan *plan) {
+                                          const PipelinePlan *plan, int custom_interval) {
     CheckpointManager cm = {0};
     cm.policy = policy;
     cm.n_layers = cfg->dims.n_layers;
@@ -38,45 +39,40 @@ static CheckpointManager checkpoint_init(CheckpointPolicy policy, const ModelCon
 
     switch (policy) {
     case CKPT_ALL:
-        // Save everything — no recompute needed
         for (int i = 0; i < cm.n_layers; i++) cm.is_saved[i] = true;
-        cm.n_checkpointed = cm.n_layers;
         break;
 
     case CKPT_BOUNDARY:
-        // Save only the input to each layer group
         for (int g = 0; g < plan->n_groups; g++) {
             cm.is_saved[plan->groups[g].start_layer] = true;
         }
-        // Always save the last layer's output (needed for loss backward)
         cm.is_saved[cm.n_layers - 1] = true;
-        cm.n_checkpointed = plan->n_groups + 1;
         break;
 
     case CKPT_SQRT: {
-        // Save every √N layers — optimal memory/compute balance
         int interval = (int)sqrtf((float)cm.n_layers);
         if (interval < 1) interval = 1;
         cm.interval = interval;
         for (int i = 0; i < cm.n_layers; i += interval) cm.is_saved[i] = true;
         cm.is_saved[cm.n_layers - 1] = true;
-        cm.n_checkpointed = (cm.n_layers + interval - 1) / interval;
         break;
     }
 
     case CKPT_EVERY_N:
-        // Caller should set cm.interval before using
-        cm.interval = 4;   // default
+        cm.interval = (custom_interval > 0) ? custom_interval : 4;
         for (int i = 0; i < cm.n_layers; i += cm.interval) cm.is_saved[i] = true;
         cm.is_saved[cm.n_layers - 1] = true;
-        cm.n_checkpointed = (cm.n_layers + cm.interval - 1) / cm.interval;
         break;
 
     case CKPT_NONE:
-        // Save nothing except layer 0 input (needed as recompute starting point)
         cm.is_saved[0] = true;
-        cm.n_checkpointed = 1;
         break;
+    }
+
+    // Count actual saved layers — single source of truth, no fragile arithmetic
+    cm.n_checkpointed = 0;
+    for (int i = 0; i < cm.n_layers; i++) {
+        if (cm.is_saved[i]) cm.n_checkpointed++;
     }
 
     return cm;
@@ -167,4 +163,3 @@ static void checkpoint_print(const CheckpointManager *cm, const ModelDims *d) {
     }
     printf("\n");
 }
-

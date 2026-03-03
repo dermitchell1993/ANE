@@ -16,11 +16,13 @@ typedef struct {
     int headroom;       // safety margin (budget * 0.1)
 } CompileBudget;
 
-static CompileBudget budget_init(int max_compiles) {
+static CompileBudget budget_init(const CompileConfig *cc) {
     CompileBudget b;
-    b.budget = max_compiles;
+    b.budget = cc->compile_budget;
     b.used = 0;
-    b.headroom = max_compiles / 10;
+    float pct = (cc->headroom_pct > 0.0f && cc->headroom_pct < 1.0f)
+              ? cc->headroom_pct : 0.10f;
+    b.headroom = (int)(cc->compile_budget * pct);
     return b;
 }
 
@@ -85,7 +87,7 @@ static PipelineScheduler pipeline_scheduler_init(ModelConfig config, int total_s
     PipelineScheduler s = {0};
     s.config = config;
     s.plan = compute_pipeline_plan(&config);
-    s.budget = budget_init(config.compile.compile_budget);
+    s.budget = budget_init(&config.compile);
     s.phase = PHASE_FORWARD;
     s.current_group = 0;
     s.current_step = 0;
@@ -364,47 +366,43 @@ static void mmap_state_destroy(MmapState *ms) {
 
 // ===== Typed accessors into mmap regions =====
 
-// Get pointer to layer L's weights in mmap
-static float *mmap_layer_weights(MmapState *ms, int layer) {
-    return (float *)((char *)ms->base + ms->header->layer_weights_offset
-                     + (size_t)layer * layer_weight_bytes(&(ModelDims){
-                        .dim = ms->header->dim,
-                        .hidden_dim = ms->header->hidden_dim,
-                        .n_heads = ms->header->n_heads,
-                        .vocab_size = ms->header->vocab_size,
-                        .seq_len = ms->header->seq_len
-                     }));
-}
-
-// Get pointer to layer L's adam state in mmap
-static float *mmap_layer_adam(MmapState *ms, int layer) {
-    ModelDims d = {
+// Reconstruct ModelDims from mmap header (avoids repeating in each accessor)
+static inline ModelDims mmap_dims(const MmapState *ms) {
+    return (ModelDims){
         .dim = ms->header->dim, .hidden_dim = ms->header->hidden_dim,
         .n_heads = ms->header->n_heads, .vocab_size = ms->header->vocab_size,
         .seq_len = ms->header->seq_len
     };
+}
+
+// Get pointer to layer L's weights in mmap (NULL if out of bounds)
+static float *mmap_layer_weights(MmapState *ms, int layer) {
+    if (!ms || layer < 0 || layer >= ms->header->n_layers) return NULL;
+    ModelDims d = mmap_dims(ms);
+    return (float *)((char *)ms->base + ms->header->layer_weights_offset
+                     + (size_t)layer * layer_weight_bytes(&d));
+}
+
+// Get pointer to layer L's adam state in mmap (NULL if out of bounds)
+static float *mmap_layer_adam(MmapState *ms, int layer) {
+    if (!ms || layer < 0 || layer >= ms->header->n_layers) return NULL;
+    ModelDims d = mmap_dims(ms);
     return (float *)((char *)ms->base + ms->header->layer_adam_offset
                      + (size_t)layer * layer_adam_bytes(&d));
 }
 
-// Get pointer to layer L's gradient accumulators in mmap
+// Get pointer to layer L's gradient accumulators in mmap (NULL if out of bounds)
 static float *mmap_layer_grads(MmapState *ms, int layer) {
-    ModelDims d = {
-        .dim = ms->header->dim, .hidden_dim = ms->header->hidden_dim,
-        .n_heads = ms->header->n_heads, .vocab_size = ms->header->vocab_size,
-        .seq_len = ms->header->seq_len
-    };
+    if (!ms || layer < 0 || layer >= ms->header->n_layers) return NULL;
+    ModelDims d = mmap_dims(ms);
     return (float *)((char *)ms->base + ms->header->layer_grads_offset
                      + (size_t)layer * layer_gradient_bytes(&d));
 }
 
-// Get pointer to layer L's activation checkpoint in mmap
+// Get pointer to layer L's activation checkpoint in mmap (NULL if out of bounds)
 static float *mmap_layer_acts(MmapState *ms, int layer) {
-    ModelDims d = {
-        .dim = ms->header->dim, .hidden_dim = ms->header->hidden_dim,
-        .n_heads = ms->header->n_heads, .vocab_size = ms->header->vocab_size,
-        .seq_len = ms->header->seq_len
-    };
+    if (!ms || layer < 0 || layer >= ms->header->n_layers) return NULL;
+    ModelDims d = mmap_dims(ms);
     return (float *)((char *)ms->base + ms->header->layer_acts_offset
                      + (size_t)layer * layer_activation_bytes(&d));
 }
@@ -438,7 +436,7 @@ static void pipeline_restore_from_mmap(PipelineScheduler *s, const MmapState *ms
     s->learning_rate = h->learning_rate;
     s->last_loss = h->last_loss;
     // Reset compile budget (new process after exec)
-    s->budget = budget_init(s->config.compile.compile_budget);
+    s->budget = budget_init(&s->config.compile);
     s->group_compiled = false;
     s->needs_restart = false;
 }
