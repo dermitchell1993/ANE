@@ -179,7 +179,7 @@ static void test_ckpt_all_saves_everything(void) {
     TEST("CKPT_ALL saves all layers");
     ModelConfig cfg = model_config_stories110m();
     PipelinePlan plan = compute_pipeline_plan(&cfg);
-    CheckpointManager cm = checkpoint_init(CKPT_ALL, &cfg, &plan);
+    CheckpointManager cm = checkpoint_init(CKPT_ALL, &cfg, &plan, 0);
     ASSERT_EQ(cm.n_checkpointed, 12, "12 layers saved");
     for (int i = 0; i < 12; i++) {
         ASSERT_TRUE(checkpoint_should_save(&cm, i), "every layer saved");
@@ -195,7 +195,7 @@ static void test_ckpt_none_saves_minimum(void) {
     TEST("CKPT_NONE saves only layer 0");
     ModelConfig cfg = model_config_stories110m();
     PipelinePlan plan = compute_pipeline_plan(&cfg);
-    CheckpointManager cm = checkpoint_init(CKPT_NONE, &cfg, &plan);
+    CheckpointManager cm = checkpoint_init(CKPT_NONE, &cfg, &plan, 0);
     ASSERT_EQ(cm.n_checkpointed, 1, "only 1 layer saved");
     ASSERT_TRUE(checkpoint_should_save(&cm, 0), "layer 0 saved");
     ASSERT_TRUE(checkpoint_needs_recompute(&cm, 5), "layer 5 needs recompute");
@@ -208,7 +208,7 @@ static void test_ckpt_sqrt_interval(void) {
     TEST("CKPT_SQRT uses sqrt(N) interval");
     ModelConfig cfg = model_config_llama_7b();
     PipelinePlan plan = compute_pipeline_plan(&cfg);
-    CheckpointManager cm = checkpoint_init(CKPT_SQRT, &cfg, &plan);
+    CheckpointManager cm = checkpoint_init(CKPT_SQRT, &cfg, &plan, 0);
     int expected_interval = (int)sqrtf(32.0f);  // 5
     ASSERT_EQ(cm.interval, expected_interval, "interval = sqrt(32) = 5");
     // Layer 0 always saved, then 5, 10, 15, 20, 25, 30, 31
@@ -225,7 +225,7 @@ static void test_ckpt_boundary(void) {
     TEST("CKPT_BOUNDARY saves group edges");
     ModelConfig cfg = model_config_llama_7b();
     PipelinePlan plan = compute_pipeline_plan(&cfg);
-    CheckpointManager cm = checkpoint_init(CKPT_BOUNDARY, &cfg, &plan);
+    CheckpointManager cm = checkpoint_init(CKPT_BOUNDARY, &cfg, &plan, 0);
     // First layer of each group + last layer overall
     for (int g = 0; g < plan.n_groups; g++) {
         ASSERT_TRUE(checkpoint_should_save(&cm, plan.groups[g].start_layer),
@@ -247,9 +247,9 @@ static void test_ckpt_memory_savings(void) {
     ModelConfig cfg = model_config_llama_7b();
     PipelinePlan plan = compute_pipeline_plan(&cfg);
 
-    CheckpointManager cm_all = checkpoint_init(CKPT_ALL, &cfg, &plan);
-    CheckpointManager cm_sqrt = checkpoint_init(CKPT_SQRT, &cfg, &plan);
-    CheckpointManager cm_none = checkpoint_init(CKPT_NONE, &cfg, &plan);
+    CheckpointManager cm_all = checkpoint_init(CKPT_ALL, &cfg, &plan, 0);
+    CheckpointManager cm_sqrt = checkpoint_init(CKPT_SQRT, &cfg, &plan, 0);
+    CheckpointManager cm_none = checkpoint_init(CKPT_NONE, &cfg, &plan, 0);
 
     size_t saved_sqrt = checkpoint_memory_saved(&cm_sqrt, &cfg.dims);
     size_t saved_none = checkpoint_memory_saved(&cm_none, &cfg.dims);
@@ -269,7 +269,7 @@ static void test_ckpt_recompute_depth(void) {
     TEST("Recompute depth counts layers from nearest checkpoint");
     ModelConfig cfg = model_config_llama_7b();
     PipelinePlan plan = compute_pipeline_plan(&cfg);
-    CheckpointManager cm = checkpoint_init(CKPT_SQRT, &cfg, &plan);
+    CheckpointManager cm = checkpoint_init(CKPT_SQRT, &cfg, &plan, 0);
     // With interval=5: checkpoints at 0, 5, 10, 15, 20, 25, 30, 31
     // Layer 3: nearest saved before = 0, depth = 3
     ASSERT_EQ(checkpoint_recompute_depth(&cm, 3), 3, "depth from layer 0 to 3");
@@ -286,11 +286,60 @@ static void test_ckpt_out_of_bounds(void) {
     TEST("Checkpoint queries handle out-of-bounds gracefully");
     ModelConfig cfg = model_config_stories110m();
     PipelinePlan plan = compute_pipeline_plan(&cfg);
-    CheckpointManager cm = checkpoint_init(CKPT_ALL, &cfg, &plan);
+    CheckpointManager cm = checkpoint_init(CKPT_ALL, &cfg, &plan, 0);
     ASSERT_TRUE(!checkpoint_should_save(&cm, -1), "negative index returns false");
     ASSERT_TRUE(!checkpoint_should_save(&cm, 100), "over-max index returns false");
     checkpoint_free(&cm);
     pipeline_plan_free(&plan);
+    PASS();
+}
+
+static void test_ckpt_every_n_custom_interval(void) {
+    TEST("CKPT_EVERY_N respects custom_interval parameter");
+    ModelConfig cfg = model_config_llama_7b();
+    PipelinePlan plan = compute_pipeline_plan(&cfg);
+    CheckpointManager cm3 = checkpoint_init(CKPT_EVERY_N, &cfg, &plan, 3);
+    CheckpointManager cm8 = checkpoint_init(CKPT_EVERY_N, &cfg, &plan, 8);
+    ASSERT_EQ(cm3.interval, 3, "interval=3 when custom_interval=3");
+    ASSERT_EQ(cm8.interval, 8, "interval=8 when custom_interval=8");
+    ASSERT_TRUE(cm3.n_checkpointed > cm8.n_checkpointed,
+                "shorter interval = more checkpoints");
+    // Verify layer 0 and last layer always saved
+    ASSERT_TRUE(checkpoint_should_save(&cm3, 0), "layer 0 saved (interval=3)");
+    ASSERT_TRUE(checkpoint_should_save(&cm3, 31), "last layer saved (interval=3)");
+    ASSERT_TRUE(checkpoint_should_save(&cm8, 0), "layer 0 saved (interval=8)");
+    ASSERT_TRUE(checkpoint_should_save(&cm8, 31), "last layer saved (interval=8)");
+    checkpoint_free(&cm3);
+    checkpoint_free(&cm8);
+    pipeline_plan_free(&plan);
+    PASS();
+}
+
+static void test_ckpt_n_checkpointed_accuracy(void) {
+    TEST("n_checkpointed matches actual is_saved bit count");
+    ModelConfig cfg = model_config_llama_7b();
+    PipelinePlan plan = compute_pipeline_plan(&cfg);
+    CheckpointPolicy policies[] = {CKPT_ALL, CKPT_BOUNDARY, CKPT_SQRT, CKPT_EVERY_N, CKPT_NONE};
+    for (int p = 0; p < 5; p++) {
+        CheckpointManager cm = checkpoint_init(policies[p], &cfg, &plan, 0);
+        int actual = 0;
+        for (int i = 0; i < cm.n_layers; i++) {
+            if (cm.is_saved[i]) actual++;
+        }
+        ASSERT_EQ(cm.n_checkpointed, actual, "n_checkpointed matches is_saved count");
+        checkpoint_free(&cm);
+    }
+    pipeline_plan_free(&plan);
+    PASS();
+}
+
+static void test_dims_init_zero_heads(void) {
+    TEST("model_dims_init guards divide-by-zero on n_heads=0");
+    ModelDims d = {.dim = 768, .n_heads = 0, .n_kv_heads = 0, .seq_len = 256};
+    model_dims_init(&d);
+    ASSERT_EQ(d.head_dim, 0, "head_dim=0 when n_heads=0");
+    ASSERT_EQ(d.kv_dim, 0, "kv_dim=0 when n_heads=0");
+    ASSERT_EQ(d.score_ch, 0, "score_ch=0 when n_heads=0");
     PASS();
 }
 
@@ -386,6 +435,9 @@ int main(void) {
     test_ckpt_memory_savings();
     test_ckpt_recompute_depth();
     test_ckpt_out_of_bounds();
+    test_ckpt_every_n_custom_interval();
+    test_ckpt_n_checkpointed_accuracy();
+    test_dims_init_zero_heads();
 
     printf("\n[FLOP estimation]\n");
     test_flops_nonzero();
@@ -394,4 +446,3 @@ int main(void) {
     printf("\n=== Results: %d/%d passed ===\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
 }
-
