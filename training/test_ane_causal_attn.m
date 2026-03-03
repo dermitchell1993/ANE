@@ -6,6 +6,7 @@
 #import <IOSurface/IOSurface.h>
 #import <mach/mach_time.h>
 #include <math.h>
+#include "ane_compat.h"
 
 #define HEADS 12
 #define HD 64
@@ -76,19 +77,22 @@ int main() {
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();
+        ane_detect_platform();
+        ane_print_platform();
         mach_timebase_info(&g_tb);
 
         // === Approach 1: Non-causal SDPA (baseline) ===
         printf("=== Non-causal SDPA (baseline) ===\n");
         NSString *sdpa_mil = [NSString stringWithFormat:
-            @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-            "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-            "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-            "    func main<ios18>(tensor<fp16, [1, %d, %d, %d]> q, "
+            @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+            "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+            "{\"coremltools-version\", \"\"}})]\n{\n"
+            "    func main<%s>(tensor<fp16, [1, %d, %d, %d]> q, "
             "tensor<fp16, [1, %d, %d, %d]> k, tensor<fp16, [1, %d, %d, %d]> v) {\n"
             "        tensor<fp16, [1, %d, %d, %d]> att = scaled_dot_product_attention("
             "query = q, key = k, value = v)[name = string(\"sdpa\")];\n"
             "    } -> (att);\n}\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             HEADS, SEQ, HD, HEADS, SEQ, HD, HEADS, SEQ, HD, HEADS, SEQ, HD];
         Kern kSDPA = compile_mil(sdpa_mil);
         printf("SDPA compile: %s\n", kSDPA.model ? "OK" : "FAIL");
@@ -100,28 +104,30 @@ int main() {
         // scores = Q @ K^T → [1, HEADS, SEQ, SEQ]
         printf("\n=== Decomposed causal attention ===\n");
         NSString *qkt_mil = [NSString stringWithFormat:
-            @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-            "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-            "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-            "    func main<ios18>(tensor<fp16, [1, %d, %d, %d]> q, "
+            @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+            "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+            "{\"coremltools-version\", \"\"}})]\n{\n"
+            "    func main<%s>(tensor<fp16, [1, %d, %d, %d]> q, "
             "tensor<fp16, [1, %d, %d, %d]> k) {\n"
             "        tensor<fp16, [1, %d, %d, %d]> scores = matmul("
             "x = q, y = k, transpose_y = true)[name = string(\"qkt\")];\n"
             "    } -> (scores);\n}\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             HEADS, SEQ, HD, HEADS, SEQ, HD, HEADS, SEQ, SEQ];
         Kern kQKT = compile_mil(qkt_mil);
         printf("Q@K^T compile: %s\n", kQKT.model ? "OK" : "FAIL");
 
         // Step 3: scores_softmax @ V → output [1, HEADS, SEQ, HD]
         NSString *sv_mil = [NSString stringWithFormat:
-            @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-            "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-            "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-            "    func main<ios18>(tensor<fp16, [1, %d, %d, %d]> s, "
+            @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+            "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+            "{\"coremltools-version\", \"\"}})]\n{\n"
+            "    func main<%s>(tensor<fp16, [1, %d, %d, %d]> s, "
             "tensor<fp16, [1, %d, %d, %d]> v) {\n"
             "        tensor<fp16, [1, %d, %d, %d]> out = matmul("
             "x = s, y = v)[name = string(\"sv\")];\n"
             "    } -> (out);\n}\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             HEADS, SEQ, SEQ, HEADS, SEQ, HD, HEADS, SEQ, HD];
         Kern kSV = compile_mil(sv_mil);
         printf("scores@V compile: %s\n", kSV.model ? "OK" : "FAIL");

@@ -10,6 +10,7 @@
 #import <IOSurface/IOSurface.h>
 #import <mach/mach_time.h>
 #include <math.h>
+#include "ane_compat.h"
 
 static Class g_D, g_I, g_AR, g_AIO;
 
@@ -61,10 +62,10 @@ static NSData *build_blob_transposed(const float *w, int rows, int cols) {
 
 static NSString *gen_conv_mil(int in_ch, int out_ch, int sp) {
     return [NSString stringWithFormat:
-        @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-        "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-        "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-        "    func main<ios18>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+        @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+        "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+        "{\"coremltools-version\", \"\"}})]\n{\n"
+        "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
         "        string d1 = const()[name = string(\"d1\"), val = string(\"fp16\")];\n"
         "        tensor<fp16, [1, %d, 1, %d]> x16 = cast(dtype = d1, x = x)[name = string(\"cx\")];\n"
         "        tensor<fp16, [%d, %d, 1, 1]> W = const()[name = string(\"W\"), "
@@ -79,6 +80,7 @@ static NSString *gen_conv_mil(int in_ch, int out_ch, int sp) {
         "        string d2 = const()[name = string(\"d2\"), val = string(\"fp32\")];\n"
         "        tensor<fp32, [1, %d, 1, %d]> y = cast(dtype = d2, x = y16)[name = string(\"co\")];\n"
         "    } -> (y);\n}\n",
+        g_ane_platform.mil_program, ane_mil_target(),
         in_ch, sp, in_ch, sp, out_ch, in_ch, out_ch, in_ch, out_ch, sp, out_ch, sp];
 }
 
@@ -152,6 +154,8 @@ static void ane_eval(Kern *k, const float *in, float *out, int in_ch, int out_ch
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         ane_init();
+        ane_detect_platform();
+        ane_print_platform();
         mach_timebase_info_data_t tb;
         mach_timebase_info(&tb);
 

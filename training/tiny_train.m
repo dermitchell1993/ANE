@@ -10,6 +10,7 @@
 #import <mach/mach_time.h>
 #include <math.h>
 #include <unistd.h>
+#include "ane_compat.h"
 #include <dispatch/dispatch.h>
 
 static Class g_D, g_I, g_AR, g_AIO;
@@ -61,10 +62,10 @@ static NSData *build_blob_transposed(const float *w, int rows, int cols) {
 
 static NSString *gen_conv_mil(int in_ch, int out_ch, int sp) {
     return [NSString stringWithFormat:
-        @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-        "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-        "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-        "    func main<ios18>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+        @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+        "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+        "{\"coremltools-version\", \"\"}})]\n{\n"
+        "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
         "        string d1 = const()[name = string(\"d1\"), val = string(\"fp16\")];\n"
         "        tensor<fp16, [1, %d, 1, %d]> x16 = cast(dtype = d1, x = x)[name = string(\"cx\")];\n"
         "        tensor<fp16, [%d, %d, 1, 1]> W = const()[name = string(\"W\"), "
@@ -79,6 +80,7 @@ static NSString *gen_conv_mil(int in_ch, int out_ch, int sp) {
         "        string d2 = const()[name = string(\"d2\"), val = string(\"fp32\")];\n"
         "        tensor<fp32, [1, %d, 1, %d]> y = cast(dtype = d2, x = y16)[name = string(\"co\")];\n"
         "    } -> (y);\n}\n",
+        g_ane_platform.mil_program, ane_mil_target(),
         in_ch, sp, in_ch, sp, out_ch, in_ch, out_ch, in_ch, out_ch, sp, out_ch, sp];
 }
 
@@ -223,6 +225,8 @@ int main(int argc, char *argv[]) {
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();
+        ane_detect_platform();
+        ane_print_platform();
         mach_timebase_info(&g_tb);
         g_compile_queue = dispatch_queue_create("ane.compile", DISPATCH_QUEUE_SERIAL);
 
@@ -279,7 +283,7 @@ int main(int argc, char *argv[]) {
             printf("=== ANE Training: Pipeline Parallel + Grad Accumulation ===\n");
             printf("x:[%d,%d] -> W1:[%d,%d] -> ReLU -> W2:[%d,%d] -> y:[%d,%d]\n", S,D, H,D, D,H, S,D);
             printf("Accum %d steps per recompile | Pipeline: compile overlaps ANE eval\n", ACCUM_STEPS);
-            printf("ANE FP16 peak: 15.8 TFLOPS (M4) | Weights: %.1f KB\n\n", weight_bytes/1024.0);
+            printf("ANE FP16 peak: %.1f TFLOPS (%s) | Weights: %.1f KB\n\n", ane_peak_tflops(), g_ane_platform.chip_name, weight_bytes/1024.0);
             printf("FLOPs/step: ANE=%.0f (fwd+bwd)  CPU=%.0f (dW)  Total=%.0f\n",
                    ane_flops_per_step, cpu_flops_per_step, total_flops_per_step);
             printf("Steps: %d, LR: %.4f, exec() budget: %d compiles\n\n",
@@ -574,8 +578,8 @@ int main(int argc, char *argv[]) {
                (ane_total_flops + cpu_total_flops) / 1e6,
                (ane_total_flops + cpu_total_flops) / (total_train_ms * 1e6));
         printf("\n");
-        printf("ANE utilization: %.4f%% of 15.8 TFLOPS peak\n",
-               100.0 * ane_total_flops / (total_train_ms * 1e6) / 15800.0);
+        printf("ANE utilization: %.4f%% of %.1f TFLOPS peak\n",
+               100.0 * ane_total_flops / (total_train_ms * 1e6) / (ane_peak_tflops() * 1000.0), ane_peak_tflops());
         printf("Weight params:   %d (%.1f KB FP16)\n",
                H*D + D*H, weight_bytes / 1024.0);
         printf("Compile amortization: %.1f ms compile / %d steps = %.2f ms/step overhead\n",

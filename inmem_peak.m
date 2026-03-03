@@ -5,6 +5,7 @@
 #import <dlfcn.h>
 #import <mach/mach_time.h>
 #import <IOSurface/IOSurface.h>
+#include "training/ane_compat.h"
 
 static mach_timebase_info_data_t g_tb;
 static double ticksToMs(uint64_t t) { return (double)t * g_tb.numer / g_tb.denom / 1e6; }
@@ -27,8 +28,8 @@ NSData *buildWeightBlob(int ch, int depth) {
 
 NSString *genMIL(int ch, int sp, int depth) {
     NSMutableString *m = [NSMutableString string];
-    [m appendString:@"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, {\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, {\"coremltools-version\", \"9.0\"}})]\n{\n"];
-    [m appendFormat:@"    func main<ios18>(tensor<fp32, [1, %d, 1, %d]> x) {\n", ch, sp];
+    [m appendFormat:@"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, {\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, {\"coremltools-version\", \"\"}})]\n{\n", g_ane_platform.mil_program];
+    [m appendFormat:@"    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n", ane_mil_target(), ch, sp];
     [m appendString:@"            string c_pad_type_0 = const()[name = string(\"c_pad_type_0\"), val = string(\"valid\")];\n"
         @"            tensor<int32, [2]> c_strides_0 = const()[name = string(\"c_strides_0\"), val = tensor<int32, [2]>([1, 1])];\n"
         @"            tensor<int32, [4]> c_pad_0 = const()[name = string(\"c_pad_0\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
@@ -89,6 +90,8 @@ double bench(int ch, int sp, int depth) {
 int main() {
     mach_timebase_info(&g_tb);
     dlopen("/System/Library/PrivateFrameworks/AppleNeuralEngine.framework/AppleNeuralEngine",RTLD_NOW);
+    ane_detect_platform();
+    ane_print_platform();
     printf("=== Programmatic MIL → In-Memory ANE Peak ===\n\n");
     printf("%-28s %7s %7s %9s %7s %6s\n","Config","W(MB)","GFLOP","ms/eval","TFLOPS","%%peak");
     printf("----------------------------------------------------------------------\n");
@@ -104,7 +107,7 @@ int main() {
         char l[64]; snprintf(l,64,"%dx conv %dch sp%d",d,c,s);
         double ms=bench(c,s,d);
         double tf=ms>0?gf/ms:0;
-        if(ms>0)printf("%-28s %6.1f  %6.2f  %7.3f ms %6.2f  %5.1f%%\n",l,w,gf,ms,tf,tf/0.019*100);
+        if(ms>0)printf("%-28s %6.1f  %6.2f  %7.3f ms %6.2f  %5.1f%%\n",l,w,gf,ms,tf,tf/ane_peak_tflops()*100);
         else printf("%-28s %6.1f  %6.2f  FAIL(%.0f)\n",l,w,gf,ms);
     }
     return 0;

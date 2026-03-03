@@ -10,6 +10,7 @@
 #import <dlfcn.h>
 #import <IOSurface/IOSurface.h>
 #include <math.h>
+#include "ane_compat.h"
 
 #define DIM 768
 #define HIDDEN 2048
@@ -45,6 +46,8 @@ int main() {
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();
+        ane_detect_platform();
+        ane_print_platform();
 
         srand48(42);
         float *W1 = (float*)malloc(HIDDEN*DIM*sizeof(float));
@@ -59,10 +62,10 @@ int main() {
         printf("=== Fused W1b+W3b backward (slice+conv+add) ===\n");
 
         NSString *mil = [NSString stringWithFormat:
-            @"program(1.3)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-            "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-            "{\"coremltools-version\", \"9.0\"}})]\n{\n"
-            "    func main<ios18>(tensor<fp32, [1, %d, 1, %d]> x) {\n"  // [1, HIDDEN*2, 1, SEQ]
+            @"program(%s)\n[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+            "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+            "{\"coremltools-version\", \"\"}})]\n{\n"
+            "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"  // [1, HIDDEN*2, 1, SEQ]
             "        string d1 = const()[name = string(\"d1\"), val = string(\"fp16\")];\n"
             "        tensor<fp16, [1, %d, 1, %d]> x16 = cast(dtype = d1, x = x)[name = string(\"cx\")];\n"
             // Slice: dh1 = x16[:, 0:HIDDEN, :, :], dh3 = x16[:, HIDDEN:2*HIDDEN, :, :]
@@ -92,6 +95,7 @@ int main() {
             "        string d2 = const()[name = string(\"d2\"), val = string(\"fp32\")];\n"
             "        tensor<fp32, [1, %d, 1, %d]> y = cast(dtype = d2, x = sum)[name = string(\"co\")];\n"
             "    } -> (y);\n}\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             HIDDEN*2, SEQ, HIDDEN*2, SEQ,
             HIDDEN, SEQ, HIDDEN, SEQ,  // slice1
             HIDDEN, HIDDEN, SEQ, HIDDEN, SEQ,  // slice3

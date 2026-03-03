@@ -13,6 +13,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include "ane_compat.h"
 
 // Stories110M config
 #define DIM 768

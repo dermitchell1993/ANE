@@ -7,6 +7,7 @@
 #import <IOSurface/IOSurface.h>
 #import <mach/mach_time.h>
 #include <math.h>
+#include "ane_compat.h"
 
 static mach_timebase_info_data_t g_tb;
 static double tb_ms(uint64_t t) { return (double)t * g_tb.numer / g_tb.denom / 1e6; }
@@ -55,6 +56,8 @@ int main() {
         setbuf(stdout, NULL);
         mach_timebase_info(&g_tb);
         dlopen("/System/Library/PrivateFrameworks/AppleNeuralEngine.framework/AppleNeuralEngine", RTLD_NOW);
+        ane_detect_platform();
+        ane_print_platform();
 
         printf("=== ANE Advanced Interface Probe ===\n");
 
@@ -107,12 +110,12 @@ int main() {
         NSData *wdata = [NSData dataWithBytesNoCopy:blob length:tot freeWhenDone:YES];
 
         NSString *mil = [NSString stringWithFormat:
-            @"program(1.3)\n"
-            "[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
-            "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
-            "{\"coremltools-version\", \"9.0\"}})]\n"
+            @"program(%s)\n"
+            "[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"\"}, "
+            "{\"coremlc-version\", \"\"}, {\"coremltools-component-milinternal\", \"\"}, "
+            "{\"coremltools-version\", \"\"}})]\n"
             "{\n"
-            "    func main<ios18>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+            "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
             "        string pt = const()[name=string(\"pt\"), val=string(\"valid\")];\n"
             "        tensor<int32, [2]> st = const()[name=string(\"st\"), val=tensor<int32, [2]>([1,1])];\n"
             "        tensor<int32, [4]> pd = const()[name=string(\"pd\"), val=tensor<int32, [4]>([0,0,0,0])];\n"
@@ -127,7 +130,7 @@ int main() {
             "        string to32 = const()[name=string(\"to32\"), val=string(\"fp32\")];\n"
             "        tensor<fp32, [1,%d,1,%d]> y = cast(dtype=to32,x=y16)[name=string(\"cout\")];\n"
             "    } -> (y);\n"
-            "}\n", CH, SP, CH, SP, CH, CH, CH, CH, CH, SP, CH, SP];
+            "}\n", g_ane_platform.mil_program, ane_mil_target(), CH, SP, CH, SP, CH, CH, CH, CH, CH, SP, CH, SP];
 
         NSData *md = [mil dataUsingEncoding:NSUTF8StringEncoding];
         id desc = ((id(*)(Class,SEL,id,id,id))objc_msgSend)(g_D, @selector(modelWithMILText:weights:optionsPlist:),

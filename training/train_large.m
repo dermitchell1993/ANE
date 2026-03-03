@@ -4,6 +4,7 @@
 #include "stories_io.h"
 #include "stories_mil.h"
 #include "stories_cpu_ops.h"
+#include "ane_compat.h"
 
 #define CKPT_PATH "ane_stories110M_ckpt.bin"
 #define MODEL_PATH "../../assets/models/stories110M.bin"
@@ -185,6 +186,8 @@ int main(int argc, char *argv[]) {
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();
+        ane_detect_platform();
+        ane_print_platform();
         mach_timebase_info(&g_tb);
 
         int total_steps = 10000;
@@ -643,7 +646,7 @@ int main(int argc, char *argv[]) {
                     "\"train_ms\":%.1f,\"ms_per_step\":%.1f}\n",
                     steps_batch, cms, tms, tms/steps_batch);
                 fprintf(stderr, "{\"type\":\"perf\",\"ane_tflops\":%.3f,\"ane_util_pct\":%.2f}\n",
-                    ane_tflops, 100.0*ane_tflops/15.8);
+                    ane_tflops, 100.0*ane_tflops/ane_peak_tflops());
             }
         }
 
@@ -664,7 +667,7 @@ int main(int argc, char *argv[]) {
         printf("Avg train:       %.1f ms/step\n", total_train_ms/total_steps_done);
         printf("ANE TFLOPS:      %.2f sustained\n", ane_flops / (total_train_ms * 1e9));
         printf("Total TFLOPS:    %.2f (ANE+CPU)\n", total_flops / (total_train_ms * 1e9));
-        printf("ANE utilization: %.1f%% of 15.8 TFLOPS\n", 100*ane_flops/(total_train_ms*1e9)/15.8);
+        printf("ANE utilization: %.1f%% of %.1f TFLOPS\n", 100*ane_flops/(total_train_ms*1e9)/ane_peak_tflops(), ane_peak_tflops());
 
         // Cleanup
         for (int L=0; L<NLAYERS; L++) {
