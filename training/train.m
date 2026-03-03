@@ -10,6 +10,7 @@
 
 static mach_timebase_info_data_t g_tb;
 static double ticksToMs(uint64_t t) { return (double)t * g_tb.numer / g_tb.denom / 1e6; }
+int g_fp16_io = 0;  // M1/M2: cast op unsupported, use fp16 I/O directly
 
 int main(int argc, char *argv[]) {
     @autoreleasepool {
@@ -37,8 +38,17 @@ int main(int argc, char *argv[]) {
 
         if (use_ane) {
             if (model_compile_kernels(&m, seq_len) != 0) {
-                fprintf(stderr, "ANE kernel compilation failed, falling back to CPU\n");
-                use_ane = false;
+                if (!g_fp16_io) {
+                    printf("[ANE] fp32 compile failed, retrying with fp16 I/O (M1/M2 fallback)\n");
+                    g_fp16_io = 1;
+                    if (model_compile_kernels(&m, seq_len) != 0) {
+                        fprintf(stderr, "ANE kernel compilation failed, falling back to CPU\n");
+                        use_ane = false;
+                    }
+                } else {
+                    fprintf(stderr, "ANE kernel compilation failed, falling back to CPU\n");
+                    use_ane = false;
+                }
             }
         }
         if (!use_ane) m.seq_len = seq_len;
