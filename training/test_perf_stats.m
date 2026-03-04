@@ -6,6 +6,7 @@
 #import <dlfcn.h>
 #import <IOSurface/IOSurface.h>
 #import <mach/mach_time.h>
+#include "ane_compat.h"
 
 static mach_timebase_info_data_t g_tb;
 static double tb_ms(uint64_t t) { return (double)t * g_tb.numer / g_tb.denom / 1e6; }
@@ -55,6 +56,7 @@ static IOSurfaceRef make_surface(size_t bytes) {
 }
 
 int main() {
+    ane_detect_platform(); ane_print_platform();
     @autoreleasepool {
         setbuf(stdout, NULL);
         mach_timebase_info(&g_tb);
@@ -124,9 +126,9 @@ int main() {
         NSString *mil;
         if (g_fp16_io) {
             mil = [NSString stringWithFormat:
-                @"program(1.0)\n"
+                @"program(%s)\n"
                 "[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-                "    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+                "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
                 "        tensor<string, []> pt = const()[name=tensor<string, []>(\"pt\"), val=tensor<string, []>(\"valid\")];\n"
                 "        tensor<int32, [2]> st = const()[name=tensor<string, []>(\"st\"), val=tensor<int32, [2]>([1,1])];\n"
                 "        tensor<int32, [4]> pd = const()[name=tensor<string, []>(\"pd\"), val=tensor<int32, [4]>([0,0,0,0])];\n"
@@ -136,12 +138,12 @@ int main() {
                 "val=tensor<fp16, [%d,%d,1,1]>(BLOBFILE(path=tensor<string, []>(\"@model_path/weights/weight.bin\"), offset=tensor<uint64, []>(64)))];\n"
                 "        tensor<fp16, [1,%d,1,%d]> y = conv(dilations=dl,groups=gr,pad=pd,pad_type=pt,strides=st,weight=W,x=x)"
                 "[name=tensor<string, []>(\"conv\")];\n"
-                "    } -> (y);\n}\n", CH, SP, CH, CH, CH, CH, CH, SP];
+                "    } -> (y);\n}\n", g_ane_platform.mil_program, ane_mil_target(), CH, SP, CH, CH, CH, CH, CH, SP];
         } else {
             mil = [NSString stringWithFormat:
-                @"program(1.0)\n"
+                @"program(%s)\n"
                 "[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-                "    func main<ios16>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+                "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
                 "        tensor<string, []> pt = const()[name=tensor<string, []>(\"pt\"), val=tensor<string, []>(\"valid\")];\n"
                 "        tensor<int32, [2]> st = const()[name=tensor<string, []>(\"st\"), val=tensor<int32, [2]>([1,1])];\n"
                 "        tensor<int32, [4]> pd = const()[name=tensor<string, []>(\"pd\"), val=tensor<int32, [4]>([0,0,0,0])];\n"
@@ -155,7 +157,7 @@ int main() {
                 "[name=tensor<string, []>(\"conv\")];\n"
                 "        tensor<string, []> to32 = const()[name=tensor<string, []>(\"to32\"), val=tensor<string, []>(\"fp32\")];\n"
                 "        tensor<fp32, [1,%d,1,%d]> y = cast(dtype=to32,x=y16)[name=tensor<string, []>(\"cout\")];\n"
-                "    } -> (y);\n}\n", CH, SP, CH, SP, CH, CH, CH, CH, CH, SP, CH, SP];
+                "    } -> (y);\n}\n", g_ane_platform.mil_program, ane_mil_target(), CH, SP, CH, SP, CH, CH, CH, CH, CH, SP, CH, SP];
         }
 
         NSData *md = [mil dataUsingEncoding:NSUTF8StringEncoding];

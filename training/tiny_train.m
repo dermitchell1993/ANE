@@ -11,6 +11,7 @@
 #include <math.h>
 #include <unistd.h>
 #include <dispatch/dispatch.h>
+#include "ane_compat.h"
 
 static Class g_D, g_I, g_AR, g_AIO;
 
@@ -65,8 +66,8 @@ static NSString *gen_conv_mil(int in_ch, int out_ch, int sp) {
     if (g_fp16_io) {
         // fp16 I/O path — no cast ops (M1/M2 compatible)
         return [NSString stringWithFormat:
-            @"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-            "    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+            @"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
+            "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
             "        tensor<fp16, [%d, %d, 1, 1]> W = const()[name = tensor<string, []>(\"W\"), "
             "val = tensor<fp16, [%d, %d, 1, 1]>(BLOBFILE(path = tensor<string, []>(\"@model_path/weights/weight.bin\"), offset = tensor<uint64, []>(64)))];\n"
             "        tensor<string, []> pt = const()[name = tensor<string, []>(\"pt\"), val = tensor<string, []>(\"valid\")];\n"
@@ -77,12 +78,13 @@ static NSString *gen_conv_mil(int in_ch, int out_ch, int sp) {
             "        tensor<fp16, [1, %d, 1, %d]> y = conv(dilations = dl, groups = gr, pad = pd, "
             "pad_type = pt, strides = st, weight = W, x = x)[name = tensor<string, []>(\"cv\")];\n"
             "    } -> (y);\n}\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             in_ch, sp, out_ch, in_ch, out_ch, in_ch, out_ch, sp];
     }
     // fp32 I/O path — cast to/from fp16 internally (M4+ native)
     return [NSString stringWithFormat:
-        @"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-        "    func main<ios16>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+        @"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
+        "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
         "        tensor<string, []> d1 = const()[name = tensor<string, []>(\"d1\"), val = tensor<string, []>(\"fp16\")];\n"
         "        tensor<fp16, [1, %d, 1, %d]> x16 = cast(dtype = d1, x = x)[name = tensor<string, []>(\"cx\")];\n"
         "        tensor<fp16, [%d, %d, 1, 1]> W = const()[name = tensor<string, []>(\"W\"), "
@@ -97,6 +99,7 @@ static NSString *gen_conv_mil(int in_ch, int out_ch, int sp) {
         "        tensor<string, []> d2 = const()[name = tensor<string, []>(\"d2\"), val = tensor<string, []>(\"fp32\")];\n"
         "        tensor<fp32, [1, %d, 1, %d]> y = cast(dtype = d2, x = y16)[name = tensor<string, []>(\"co\")];\n"
         "    } -> (y);\n}\n",
+        g_ane_platform.mil_program, ane_mil_target(),
         in_ch, sp, in_ch, sp, out_ch, in_ch, out_ch, in_ch, out_ch, sp, out_ch, sp];
 }
 
@@ -274,6 +277,7 @@ static mach_timebase_info_data_t g_tb;
 static dispatch_queue_t g_compile_queue;
 
 int main(int argc, char *argv[]) {
+    ane_detect_platform(); ane_print_platform();
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();

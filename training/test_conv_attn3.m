@@ -5,6 +5,7 @@
 #import <IOSurface/IOSurface.h>
 #import <mach/mach_time.h>
 #include <math.h>
+#include "ane_compat.h"
 
 #define HEADS 12
 #define HD 64
@@ -82,8 +83,8 @@ static void cleanup_kern(Kern *k) {
 
 static NSString *gen_conv_mil(int ic, int oc, int icg, int groups, int sp) {
     return [NSString stringWithFormat:
-        @"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-        "    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+        @"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
+        "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
         "        tensor<fp16, [%d, %d, 1, 1]> W = const()[name = tensor<string, []>(\"W\"), "
         "val = tensor<fp16, [%d, %d, 1, 1]>(BLOBFILE(path = tensor<string, []>(\"@model_path/weights/w.bin\"), offset = tensor<uint64, []>(64)))];\n"
         "        tensor<string, []> pt = const()[name = tensor<string, []>(\"pt\"), val = tensor<string, []>(\"valid\")];\n"
@@ -93,10 +94,11 @@ static NSString *gen_conv_mil(int ic, int oc, int icg, int groups, int sp) {
         "        tensor<int32, []> gr = const()[name = tensor<string, []>(\"gr\"), val = tensor<int32, []>(%d)];\n"
         "        tensor<fp16, [1, %d, 1, %d]> y = conv(dilations = dl, groups = gr, pad = pd, "
         "pad_type = pt, strides = st, weight = W, x = x)[name = tensor<string, []>(\"cv\")];\n"
-        "    } -> (y);\n}\n", ic, sp, oc, icg, oc, icg, groups, oc, sp];
+        "    } -> (y);\n}\n", g_ane_platform.mil_program, ane_mil_target(), ic, sp, oc, icg, oc, icg, groups, oc, sp];
 }
 
 int main() {
+    ane_detect_platform(); ane_print_platform();
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();

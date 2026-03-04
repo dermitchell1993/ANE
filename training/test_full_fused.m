@@ -7,6 +7,7 @@
 #import <IOSurface/IOSurface.h>
 #import <mach/mach_time.h>
 #include <math.h>
+#include "ane_compat.h"
 
 #define DIM 768
 #define HEADS 12
@@ -101,6 +102,7 @@ static void cleanup_kern(Kern *k) {
 }
 
 int main() {
+    ane_detect_platform(); ane_print_platform();
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();
@@ -130,8 +132,8 @@ int main() {
             float scale_val = 1.0f / sqrtf((float)HD);
 
             NSString *mil = [NSString stringWithFormat:
-                @"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-                "    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+                @"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
+                "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
                 // Conv boilerplate
                 "        tensor<string, []> pt = const()[name = tensor<string, []>(\"pt\"), val = tensor<string, []>(\"valid\")];\n"
                 "        tensor<int32, [2]> st = const()[name = tensor<string, []>(\"st\"), val = tensor<int32, [2]>([1, 1])];\n"
@@ -315,8 +317,8 @@ int main() {
         printf("\n=== Test 2: Fused FFN benchmark ===\n");
         {
             NSString *mil = [NSString stringWithFormat:
-                @"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-                "    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+                @"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
+                "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
                 "        tensor<string, []> pt = const()[name = tensor<string, []>(\"pt\"), val = tensor<string, []>(\"valid\")];\n"
                 "        tensor<int32, [2]> st = const()[name = tensor<string, []>(\"st\"), val = tensor<int32, [2]>([1, 1])];\n"
                 "        tensor<int32, [4]> pd = const()[name = tensor<string, []>(\"pd\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
@@ -338,6 +340,7 @@ int main() {
                 "        tensor<fp16, [1, %d, 1, %d]> out = conv(dilations = dl, groups = gr, pad = pd, "
                 "pad_type = pt, strides = st, weight = W2, x = gate)[name = tensor<string, []>(\"c2\")];\n"
                 "    } -> (out);\n}\n",
+                g_ane_platform.mil_program, ane_mil_target(),
                 DIM, SEQ,
                 HIDDEN,DIM,HIDDEN,DIM, HIDDEN,DIM,HIDDEN,DIM, DIM,HIDDEN,DIM,HIDDEN,
                 HIDDEN,SEQ, HIDDEN,SEQ, HIDDEN,SEQ, HIDDEN,SEQ, HIDDEN,SEQ, DIM,SEQ];

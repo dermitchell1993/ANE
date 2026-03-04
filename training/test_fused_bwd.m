@@ -10,6 +10,7 @@
 #import <dlfcn.h>
 #import <IOSurface/IOSurface.h>
 #include <math.h>
+#include "ane_compat.h"
 
 #define DIM 768
 #define HIDDEN 2048
@@ -44,6 +45,7 @@ static NSData *build_blob_t(const float *w, int rows, int cols) {
 }
 
 int main() {
+    ane_detect_platform(); ane_print_platform();
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();
@@ -64,8 +66,8 @@ int main() {
         NSString *mil;
         if (g_fp16_io) {
             mil = [NSString stringWithFormat:
-                @"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-                "    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+                @"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
+                "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
                 "        tensor<int32, [4]> b1 = const()[name = tensor<string, []>(\"b1\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
                 "        tensor<int32, [4]> s1 = const()[name = tensor<string, []>(\"s1\"), val = tensor<int32, [4]>([1, %d, 1, %d])];\n"
                 "        tensor<fp16, [1, %d, 1, %d]> dh1 = slice_by_size(x = x, begin = b1, size = s1)[name = tensor<string, []>(\"sl1\")];\n"
@@ -87,6 +89,7 @@ int main() {
                 "pad_type = pt, strides = st, weight = W3t, x = dh3)[name = tensor<string, []>(\"cv3\")];\n"
                 "        tensor<fp16, [1, %d, 1, %d]> y = add(x = dx1, y = dx3)[name = tensor<string, []>(\"ad\")];\n"
                 "    } -> (y);\n}\n",
+                g_ane_platform.mil_program, ane_mil_target(),
                 HIDDEN*2, SEQ,
                 HIDDEN, SEQ, HIDDEN, SEQ,
                 HIDDEN, HIDDEN, SEQ, HIDDEN, SEQ,
@@ -96,8 +99,8 @@ int main() {
                 DIM, SEQ];
         } else {
             mil = [NSString stringWithFormat:
-                @"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-                "    func main<ios16>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+                @"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
+                "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
                 "        tensor<string, []> d1 = const()[name = tensor<string, []>(\"d1\"), val = tensor<string, []>(\"fp16\")];\n"
                 "        tensor<fp16, [1, %d, 1, %d]> x16 = cast(dtype = d1, x = x)[name = tensor<string, []>(\"cx\")];\n"
                 "        tensor<int32, [4]> b1 = const()[name = tensor<string, []>(\"b1\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
@@ -123,6 +126,7 @@ int main() {
                 "        tensor<string, []> d2 = const()[name = tensor<string, []>(\"d2\"), val = tensor<string, []>(\"fp32\")];\n"
                 "        tensor<fp32, [1, %d, 1, %d]> y = cast(dtype = d2, x = sum)[name = tensor<string, []>(\"co\")];\n"
                 "    } -> (y);\n}\n",
+                g_ane_platform.mil_program, ane_mil_target(),
                 HIDDEN*2, SEQ, HIDDEN*2, SEQ,
                 HIDDEN, SEQ, HIDDEN, SEQ,
                 HIDDEN, HIDDEN, SEQ, HIDDEN, SEQ,

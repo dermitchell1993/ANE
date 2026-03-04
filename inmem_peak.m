@@ -5,6 +5,7 @@
 #import <dlfcn.h>
 #import <mach/mach_time.h>
 #import <IOSurface/IOSurface.h>
+#include "ane_compat.h"
 
 static mach_timebase_info_data_t g_tb;
 static double ticksToMs(uint64_t t) { return (double)t * g_tb.numer / g_tb.denom / 1e6; }
@@ -28,13 +29,13 @@ NSData *buildWeightBlob(int ch, int depth) {
 
 NSString *genMIL(int ch, int sp, int depth) {
     NSMutableString *m = [NSMutableString string];
-    [m appendString:@"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"];
+    [m appendString:@"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"];
     if (g_fp16_io) {
         // fp16 I/O path — no cast ops (M1/M2 compatible)
-        [m appendFormat:@"    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n", ch, sp];
+        [m appendFormat:@"    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n", ane_mil_target(), ch, sp];
     } else {
         // fp32 I/O path — cast to/from fp16 internally (M4+ native)
-        [m appendFormat:@"    func main<ios16>(tensor<fp32, [1, %d, 1, %d]> x) {\n", ch, sp];
+        [m appendFormat:@"    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n", ane_mil_target(), ch, sp];
     }
     [m appendString:
         @"        tensor<string, []> c_pad_type_0 = const()[name = tensor<string, []>(\"c_pad_type_0\"), val = tensor<string, []>(\"valid\")];\n"
@@ -53,9 +54,11 @@ NSString *genMIL(int ch, int sp, int depth) {
     NSUInteger cs = 64 + ch*ch*2;
     for (int i = 0; i < depth; i++) {
         [m appendFormat:@"        tensor<fp16, [%d, %d, 1, 1]> W%d = const()[name = tensor<string, []>(\"W%d\"), val = tensor<fp16, [%d, %d, 1, 1]>(BLOBFILE(path = tensor<string, []>(\"@model_path/weights/weight.bin\"), offset = tensor<uint64, []>(%lu)))];\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             ch, ch, i, i, ch, ch, (unsigned long)(64 + i*cs)];
         NSString *out = [NSString stringWithFormat:@"c%d", i];
         [m appendFormat:@"        tensor<fp16, [1, %d, 1, %d]> %@ = conv(dilations = c_dilations_0, groups = c_groups_0, pad = c_pad_0, pad_type = c_pad_type_0, strides = c_strides_0, weight = W%d, x = %@)[name = tensor<string, []>(\"%@\")];\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             ch, sp, out, i, prev, out];
         prev = out;
     }
@@ -114,6 +117,7 @@ double bench(int ch, int sp, int depth) {
 }
 
 int main() {
+    ane_detect_platform(); ane_print_platform();
     mach_timebase_info(&g_tb);
     dlopen("/System/Library/PrivateFrameworks/AppleNeuralEngine.framework/AppleNeuralEngine",RTLD_NOW);
     printf("=== Programmatic MIL → In-Memory ANE Peak ===\n\n");
@@ -131,7 +135,7 @@ int main() {
         char l[64]; snprintf(l,64,"%dx conv %dch sp%d",d,c,s);
         double ms=bench(c,s,d);
         double tf=ms>0?gf/ms:0;
-        if(ms>0)printf("%-28s %6.1f  %6.2f  %7.3f ms %6.2f  %5.1f%%\n",l,w,gf,ms,tf,tf/0.019*100);
+        if(ms>0)printf("%-28s %6.1f  %6.2f  %7.3f ms %6.2f  %5.1f%%\n",l,w,gf,ms,tf,tf/ane_peak_tflops()*100);
         else printf("%-28s %6.1f  %6.2f  FAIL(%.0f)\n",l,w,gf,ms);
     }
     return 0;

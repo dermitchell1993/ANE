@@ -8,6 +8,7 @@
 #import <IOSurface/IOSurface.h>
 #import <mach/mach_time.h>
 #include <math.h>
+#include "ane_compat.h"
 
 #define DIM 768
 #define SEQ 64
@@ -92,8 +93,8 @@ static void cleanup_kern(Kern *k) {
 static NSString *gen_fused_qkv_mil(void) {
     if (g_fp16_io) {
         return [NSString stringWithFormat:
-            @"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-            "    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+            @"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
+            "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
             "        tensor<string, []> pt = const()[name = tensor<string, []>(\"pt\"), val = tensor<string, []>(\"valid\")];\n"
             "        tensor<int32, [2]> st = const()[name = tensor<string, []>(\"st\"), val = tensor<int32, [2]>([1, 1])];\n"
             "        tensor<int32, [4]> pd = const()[name = tensor<string, []>(\"pd\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
@@ -115,6 +116,7 @@ static NSString *gen_fused_qkv_mil(void) {
             "        tensor<bool, []> inter = const()[name = tensor<string, []>(\"il\"), val = tensor<bool, []>(false)];\n"
             "        tensor<fp16, [1, %d, 1, %d]> y = concat(axis = ax, interleave = inter, values = (q, k, v))[name = tensor<string, []>(\"cat\")];\n"
             "    } -> (y);\n}\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             DIM, SEQ,
             DIM, DIM, DIM, DIM,
             DIM, DIM, DIM, DIM,
@@ -123,8 +125,8 @@ static NSString *gen_fused_qkv_mil(void) {
             DIM*3, SEQ];
     }
     return [NSString stringWithFormat:
-        @"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-        "    func main<ios16>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+        @"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
+        "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
         "        tensor<string, []> d1 = const()[name = tensor<string, []>(\"d1\"), val = tensor<string, []>(\"fp16\")];\n"
         "        tensor<fp16, [1, %d, 1, %d]> x16 = cast(dtype = d1, x = x)[name = tensor<string, []>(\"cx\")];\n"
         "        tensor<string, []> pt = const()[name = tensor<string, []>(\"pt\"), val = tensor<string, []>(\"valid\")];\n"
@@ -150,6 +152,7 @@ static NSString *gen_fused_qkv_mil(void) {
         "        tensor<string, []> d2 = const()[name = tensor<string, []>(\"d2\"), val = tensor<string, []>(\"fp32\")];\n"
         "        tensor<fp32, [1, %d, 1, %d]> y = cast(dtype = d2, x = qkv)[name = tensor<string, []>(\"co\")];\n"
         "    } -> (y);\n}\n",
+        g_ane_platform.mil_program, ane_mil_target(),
         DIM, SEQ, DIM, SEQ,
         DIM, DIM, DIM, DIM,
         DIM, DIM, DIM, DIM,
@@ -162,8 +165,8 @@ static NSString *gen_fused_qkv_mil(void) {
 static NSString *gen_single_mil(void) {
     if (g_fp16_io) {
         return [NSString stringWithFormat:
-            @"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-            "    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+            @"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
+            "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
             "        tensor<fp16, [%d, %d, 1, 1]> W = const()[name = tensor<string, []>(\"W\"), "
             "val = tensor<fp16, [%d, %d, 1, 1]>(BLOBFILE(path = tensor<string, []>(\"@model_path/weights/w.bin\"), offset = tensor<uint64, []>(64)))];\n"
             "        tensor<string, []> pt = const()[name = tensor<string, []>(\"pt\"), val = tensor<string, []>(\"valid\")];\n"
@@ -174,11 +177,12 @@ static NSString *gen_single_mil(void) {
             "        tensor<fp16, [1, %d, 1, %d]> y = conv(dilations = dl, groups = gr, pad = pd, "
             "pad_type = pt, strides = st, weight = W, x = x)[name = tensor<string, []>(\"cv\")];\n"
             "    } -> (y);\n}\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             DIM, SEQ, DIM, DIM, DIM, DIM, DIM, SEQ];
     }
     return [NSString stringWithFormat:
-        @"program(1.0)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
-        "    func main<ios16>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+        @"program(%s)\n[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n{\n"
+        "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
         "        tensor<string, []> d1 = const()[name = tensor<string, []>(\"d1\"), val = tensor<string, []>(\"fp16\")];\n"
         "        tensor<fp16, [1, %d, 1, %d]> x16 = cast(dtype = d1, x = x)[name = tensor<string, []>(\"cx\")];\n"
         "        tensor<fp16, [%d, %d, 1, 1]> W = const()[name = tensor<string, []>(\"W\"), "
@@ -193,10 +197,12 @@ static NSString *gen_single_mil(void) {
         "        tensor<string, []> d2 = const()[name = tensor<string, []>(\"d2\"), val = tensor<string, []>(\"fp32\")];\n"
         "        tensor<fp32, [1, %d, 1, %d]> y = cast(dtype = d2, x = y16)[name = tensor<string, []>(\"co\")];\n"
         "    } -> (y);\n}\n",
+        g_ane_platform.mil_program, ane_mil_target(),
         DIM, SEQ, DIM, SEQ, DIM, DIM, DIM, DIM, DIM, SEQ, DIM, SEQ];
 }
 
 int main() {
+    ane_detect_platform(); ane_print_platform();
     @autoreleasepool {
         setbuf(stdout, NULL);
         ane_init();

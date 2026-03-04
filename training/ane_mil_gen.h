@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "ane_compat.h"
 
 // Set by caller: 1 = fp16 I/O (M1/M2 fallback, no cast ops), 0 = fp32 I/O with cast (M4+)
 extern int g_fp16_io;
@@ -35,22 +36,23 @@ static NSData *mil_build_weight_blob(const float *weights_f32, int out_ch, int i
 static NSString *mil_gen_matmul(int in_ch, int out_ch, int spatial) {
     if (g_fp16_io) {
         return [NSString stringWithFormat:
-            @"program(1.0)\n"
+            @"program(%s)\n"
             "[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n"
             "{\n"
-            "    func main<ios16>(tensor<fp16, [1, %d, %d]> x, tensor<fp16, [1, %d, %d]> W) {\n"
+            "    func main<%s>(tensor<fp16, [1, %d, %d]> x, tensor<fp16, [1, %d, %d]> W) {\n"
             "        tensor<bool, []> tx = const()[name = tensor<string, []>(\"tx\"), val = tensor<bool, []>(false)];\n"
             "        tensor<bool, []> ty = const()[name = tensor<string, []>(\"ty\"), val = tensor<bool, []>(false)];\n"
             "        tensor<fp16, [1, %d, %d]> y = matmul(transpose_x = tx, transpose_y = ty, x = W, y = x)[name = tensor<string, []>(\"mm\")];\n"
             "    } -> (y);\n"
             "}\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             in_ch, spatial, out_ch, in_ch, out_ch, spatial];
     }
     return [NSString stringWithFormat:
-        @"program(1.0)\n"
+        @"program(%s)\n"
         "[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n"
         "{\n"
-        "    func main<ios16>(tensor<fp32, [1, %d, %d]> x, tensor<fp32, [1, %d, %d]> W) {\n"
+        "    func main<%s>(tensor<fp32, [1, %d, %d]> x, tensor<fp32, [1, %d, %d]> W) {\n"
         "        tensor<string, []> to_fp16 = const()[name = tensor<string, []>(\"to_fp16\"), val = tensor<string, []>(\"fp16\")];\n"
         "        tensor<fp16, [1, %d, %d]> x16 = cast(dtype = to_fp16, x = x)[name = tensor<string, []>(\"cast_x\")];\n"
         "        tensor<fp16, [1, %d, %d]> W16 = cast(dtype = to_fp16, x = W)[name = tensor<string, []>(\"cast_W\")];\n"
@@ -61,6 +63,7 @@ static NSString *mil_gen_matmul(int in_ch, int out_ch, int spatial) {
         "        tensor<fp32, [1, %d, %d]> y = cast(dtype = to_fp32, x = y16)[name = tensor<string, []>(\"cast_out\")];\n"
         "    } -> (y);\n"
         "}\n",
+        g_ane_platform.mil_program, ane_mil_target(),
         in_ch, spatial, out_ch, in_ch,
         in_ch, spatial, out_ch, in_ch,
         out_ch, spatial, out_ch, spatial];
@@ -70,10 +73,10 @@ static NSString *mil_gen_matmul(int in_ch, int out_ch, int spatial) {
 static NSString *mil_gen_conv(int in_ch, int out_ch, int spatial) {
     if (g_fp16_io) {
         return [NSString stringWithFormat:
-            @"program(1.0)\n"
+            @"program(%s)\n"
             "[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n"
             "{\n"
-            "    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+            "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
             "        tensor<string, []> c_pad_type = const()[name = tensor<string, []>(\"c_pad_type\"), val = tensor<string, []>(\"valid\")];\n"
             "        tensor<int32, [2]> c_strides = const()[name = tensor<string, []>(\"c_strides\"), val = tensor<int32, [2]>([1, 1])];\n"
             "        tensor<int32, [4]> c_pad = const()[name = tensor<string, []>(\"c_pad\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
@@ -85,15 +88,16 @@ static NSString *mil_gen_conv(int in_ch, int out_ch, int spatial) {
             "pad = c_pad, pad_type = c_pad_type, strides = c_strides, weight = W, x = x)[name = tensor<string, []>(\"conv\")];\n"
             "    } -> (y);\n"
             "}\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             in_ch, spatial,
             out_ch, in_ch, out_ch, in_ch,
             out_ch, spatial];
     }
     return [NSString stringWithFormat:
-        @"program(1.0)\n"
+        @"program(%s)\n"
         "[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n"
         "{\n"
-        "    func main<ios16>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+        "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
         "        tensor<string, []> c_pad_type = const()[name = tensor<string, []>(\"c_pad_type\"), val = tensor<string, []>(\"valid\")];\n"
         "        tensor<int32, [2]> c_strides = const()[name = tensor<string, []>(\"c_strides\"), val = tensor<int32, [2]>([1, 1])];\n"
         "        tensor<int32, [4]> c_pad = const()[name = tensor<string, []>(\"c_pad\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
@@ -109,6 +113,7 @@ static NSString *mil_gen_conv(int in_ch, int out_ch, int spatial) {
         "        tensor<fp32, [1, %d, 1, %d]> y = cast(dtype = to_fp32, x = y16)[name = tensor<string, []>(\"cast_out\")];\n"
         "    } -> (y);\n"
         "}\n",
+        g_ane_platform.mil_program, ane_mil_target(),
         in_ch, spatial, in_ch, spatial,
         out_ch, in_ch, out_ch, in_ch,
         out_ch, spatial, out_ch, spatial];
@@ -123,10 +128,10 @@ static NSString *mil_gen_qkv(int dim, int spatial) {
     NSUInteger cs = 64 + (NSUInteger)dim * dim * 2;
     if (g_fp16_io) {
         return [NSString stringWithFormat:
-            @"program(1.0)\n"
+            @"program(%s)\n"
             "[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n"
             "{\n"
-            "    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+            "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
             "        tensor<string, []> c_pad_type = const()[name = tensor<string, []>(\"c_pad_type\"), val = tensor<string, []>(\"valid\")];\n"
             "        tensor<int32, [2]> c_strides = const()[name = tensor<string, []>(\"c_strides\"), val = tensor<int32, [2]>([1, 1])];\n"
             "        tensor<int32, [4]> c_pad = const()[name = tensor<string, []>(\"c_pad\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
@@ -146,6 +151,7 @@ static NSString *mil_gen_qkv(int dim, int spatial) {
             "pad = c_pad, pad_type = c_pad_type, strides = c_strides, weight = Wv, x = x)[name = tensor<string, []>(\"conv_v\")];\n"
             "    } -> (q, k, v);\n"
             "}\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             dim, spatial,
             dim, dim, dim, dim,
             dim, dim, dim, dim, (unsigned long)(64 + cs),
@@ -153,10 +159,10 @@ static NSString *mil_gen_qkv(int dim, int spatial) {
             dim, spatial, dim, spatial, dim, spatial];
     }
     return [NSString stringWithFormat:
-        @"program(1.0)\n"
+        @"program(%s)\n"
         "[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n"
         "{\n"
-        "    func main<ios16>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+        "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
         "        tensor<string, []> c_pad_type = const()[name = tensor<string, []>(\"c_pad_type\"), val = tensor<string, []>(\"valid\")];\n"
         "        tensor<int32, [2]> c_strides = const()[name = tensor<string, []>(\"c_strides\"), val = tensor<int32, [2]>([1, 1])];\n"
         "        tensor<int32, [4]> c_pad = const()[name = tensor<string, []>(\"c_pad\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
@@ -182,6 +188,7 @@ static NSString *mil_gen_qkv(int dim, int spatial) {
         "        tensor<fp32, [1, %d, 1, %d]> v = cast(dtype = to_fp32, x = v16)[name = tensor<string, []>(\"cast_v\")];\n"
         "    } -> (q, k, v);\n"
         "}\n",
+        g_ane_platform.mil_program, ane_mil_target(),
         dim, spatial, dim, spatial,
         dim, dim, dim, dim,
         dim, dim, dim, dim, (unsigned long)(64 + cs),
@@ -237,10 +244,10 @@ static NSString *mil_gen_ffn_up(int dim, int hidden_dim, int spatial) {
     NSUInteger cs = 64 + (NSUInteger)hidden_dim * dim * 2;
     if (g_fp16_io) {
         return [NSString stringWithFormat:
-            @"program(1.0)\n"
+            @"program(%s)\n"
             "[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n"
             "{\n"
-            "    func main<ios16>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
+            "    func main<%s>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
             "        tensor<string, []> c_pad_type = const()[name = tensor<string, []>(\"c_pad_type\"), val = tensor<string, []>(\"valid\")];\n"
             "        tensor<int32, [2]> c_strides = const()[name = tensor<string, []>(\"c_strides\"), val = tensor<int32, [2]>([1, 1])];\n"
             "        tensor<int32, [4]> c_pad = const()[name = tensor<string, []>(\"c_pad\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
@@ -256,16 +263,17 @@ static NSString *mil_gen_ffn_up(int dim, int hidden_dim, int spatial) {
             "pad = c_pad, pad_type = c_pad_type, strides = c_strides, weight = W3, x = x)[name = tensor<string, []>(\"conv_w3\")];\n"
             "    } -> (out1, out3);\n"
             "}\n",
+            g_ane_platform.mil_program, ane_mil_target(),
             dim, spatial,
             hidden_dim, dim, hidden_dim, dim,
             hidden_dim, dim, hidden_dim, dim, (unsigned long)(64 + cs),
             hidden_dim, spatial, hidden_dim, spatial];
     }
     return [NSString stringWithFormat:
-        @"program(1.0)\n"
+        @"program(%s)\n"
         "[buildInfo = dict<tensor<string, []>, tensor<string, []>>({{\"coremlc-version\", \"3505.4.1\"}})]\n"
         "{\n"
-        "    func main<ios16>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
+        "    func main<%s>(tensor<fp32, [1, %d, 1, %d]> x) {\n"
         "        tensor<string, []> c_pad_type = const()[name = tensor<string, []>(\"c_pad_type\"), val = tensor<string, []>(\"valid\")];\n"
         "        tensor<int32, [2]> c_strides = const()[name = tensor<string, []>(\"c_strides\"), val = tensor<int32, [2]>([1, 1])];\n"
         "        tensor<int32, [4]> c_pad = const()[name = tensor<string, []>(\"c_pad\"), val = tensor<int32, [4]>([0, 0, 0, 0])];\n"
@@ -286,6 +294,7 @@ static NSString *mil_gen_ffn_up(int dim, int hidden_dim, int spatial) {
         "        tensor<fp32, [1, %d, 1, %d]> out3 = cast(dtype = to_fp32, x = h3)[name = tensor<string, []>(\"cast_h3\")];\n"
         "    } -> (out1, out3);\n"
         "}\n",
+        g_ane_platform.mil_program, ane_mil_target(),
         dim, spatial, dim, spatial,
         hidden_dim, dim, hidden_dim, dim,
         hidden_dim, dim, hidden_dim, dim, (unsigned long)(64 + cs),
