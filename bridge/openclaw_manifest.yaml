@@ -1,0 +1,92 @@
+# OpenClaw Skill Manifest — ANE Inference Node
+# Each "claw" running an ANE model registers with this manifest.
+# The swarm controller uses this to route inference requests.
+
+name: "ane-inference"
+version: "0.1.0"
+type: "llm-endpoint"
+
+capabilities:
+  - text-generation
+  - text-completion
+  - embeddings  # optional, if embedding model loaded
+
+hardware:
+  accelerator: "ane"
+  accelerator_cores: 16
+  memory_gb: 24
+  chip: "m2"  # auto-detected at startup
+  # Supported: m1, m2, m3, m4, m5 (and pro/max/ultra variants)
+
+model:
+  name: "llama-7b-q4"
+  architecture: "llama"
+  format: "anepak"  # or "gguf", "safetensors", "bin"
+  path: "./models/llama-7b-q4.anepak"
+  max_seq: 2048
+  quant: "q4_group128"
+  n_layers: 32
+  dim: 4096
+  vocab_size: 32000
+
+# Inference server endpoints
+endpoint:
+  http:
+    host: "0.0.0.0"
+    port: 8741
+    path: "/v1/completions"
+  websocket:
+    host: "0.0.0.0"
+    port: 8741
+    path: "/v1/stream"
+
+# Telemetry reporting to swarm controller
+telemetry:
+  enabled: true
+  report_interval_sec: 10
+  metrics:
+    - tok_per_sec
+    - mem_used_mb
+    - mem_peak_mb
+    - watts_ane
+    - watts_cpu
+    - joules_per_tok
+    - ane_util_pct
+    - kv_cache_seq_len
+    - compile_count
+
+# Memory safety constraints
+memory:
+  hard_cap_mb: 20480   # 20 GB — never exceed
+  soft_cap_mb: 18432   # 18 GB — start evicting KV cache
+  min_seq_len: 256     # never reduce below this
+  checkpoint_activations: true  # for LoRA training
+
+# Watchdog for 24/7 operation
+watchdog:
+  enabled: true
+  heartbeat_interval_sec: 5
+  max_restart_count: 10
+  restart_backoff_sec: [1, 2, 4, 8, 16, 32, 60]
+  persist_kv_cache: true
+  persist_path: "/tmp/ane_claw_state"
+
+# LoRA fine-tuning (optional)
+lora:
+  enabled: false
+  rank: 16
+  alpha: 32
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+  learning_rate: 0.0001
+  adapter_path: "./adapters/"
+
+# Swarm registration
+swarm:
+  controller_url: "http://localhost:9000"
+  node_id: null  # auto: $(hostname)
+  tags:
+    - "ane"
+    - "m2-24gb"
+    - "llama-7b"
+  priority: 1  # lower = higher priority for routing
+
