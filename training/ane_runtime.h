@@ -1,5 +1,7 @@
 // ane_runtime.h — Reusable ANE in-memory compile/load/eval wrapper
 // Uses _ANEInMemoryModel via private AppleNeuralEngine.framework
+//
+// Disk cache + ane_rewire() backported from imperatormk/ane-train
 #pragma once
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -42,6 +44,24 @@ static IOSurfaceRef ane_create_surface(size_t bytes) {
     });
 }
 
+// Persistent disk cache for compiled ANE kernels.
+// Key = hexStringIdentifier (hash of MIL + weights).
+// On cache hit: restore compiled artifacts to tmpDir and skip compileWithQoS:.
+static NSString *g_ane_cache_dir = nil;
+
+static void ane_set_cache_dir(NSString *dir) {
+    g_ane_cache_dir = dir;
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir
+        withIntermediateDirectories:YES attributes:nil error:nil];
+}
+
+static void ane_enable_cache(void) {
+    if (!g_ane_cache_dir) {
+        NSString *home = NSHomeDirectory();
+        ane_set_cache_dir([home stringByAppendingPathComponent:@".cache/ane_compile"]);
+    }
+}
+
 // Compile a MIL graph with weight blob into an ANE kernel.
 // milText: NSData of MIL text
 // weightData: NSData of raw weight blob (can be nil)
@@ -51,11 +71,13 @@ static ANEKernel *ane_compile(NSData *milText, NSData *weightData,
                                int nOutputs, size_t *outputSizes) {
     ane_init();
     NSError *e = nil;
+    NSFileManager *fm = [NSFileManager defaultManager];
 
-    NSDictionary *wdict = nil;
-    if (weightData) {
-        wdict = @{@"@model_path/weights/weight.bin": @{@"offset": @0, @"data": weightData}};
-    }
+    // NOTE: weights dict must always be non-nil — passing nil silently returns nil
+    // from modelWithMILText:
+    NSDictionary *wdict = weightData
+        ? @{@"@model_path/weights/weight.bin": @{@"offset": @0, @"data": weightData}}
+        : @{};
     id desc = ((id(*)(Class,SEL,id,id,id))objc_msgSend)(
         g_ANEDesc, @selector(modelWithMILText:weights:optionsPlist:),
         milText, wdict, nil);
@@ -67,19 +89,49 @@ static ANEKernel *ane_compile(NSData *milText, NSData *weightData,
     // Pre-populate temp dir with MIL + weights
     id hx = ((id(*)(id,SEL))objc_msgSend)(mdl, @selector(hexStringIdentifier));
     NSString *td = [NSTemporaryDirectory() stringByAppendingPathComponent:hx];
-    NSFileManager *fm = [NSFileManager defaultManager];
     [fm createDirectoryAtPath:[td stringByAppendingPathComponent:@"weights"]
         withIntermediateDirectories:YES attributes:nil error:nil];
     [milText writeToFile:[td stringByAppendingPathComponent:@"model.mil"] atomically:YES];
     if (weightData)
         [weightData writeToFile:[td stringByAppendingPathComponent:@"weights/weight.bin"] atomically:YES];
 
-    if (!((BOOL(*)(id,SEL,unsigned int,id,NSError**))objc_msgSend)(
-            mdl, @selector(compileWithQoS:options:error:), 21, @{}, &e)) {
-        fprintf(stderr, "ANE compile failed: %s\n", [[e description] UTF8String]);
-        [fm removeItemAtPath:td error:nil];
-        return NULL;
+    // Check disk cache
+    BOOL compiled = NO;
+    if (g_ane_cache_dir) {
+        NSString *cached = [g_ane_cache_dir stringByAppendingPathComponent:hx];
+        if ([fm fileExistsAtPath:cached]) {
+            // Cache hit: copy compiled artifacts back to tmpDir
+            [fm removeItemAtPath:td error:nil];
+            [fm copyItemAtPath:cached toPath:td error:&e];
+            compiled = (e == nil);
+            if (!compiled) {
+                // Corrupt cache entry — remove and recompile
+                [fm removeItemAtPath:cached error:nil];
+                [fm createDirectoryAtPath:[td stringByAppendingPathComponent:@"weights"]
+                    withIntermediateDirectories:YES attributes:nil error:nil];
+                [milText writeToFile:[td stringByAppendingPathComponent:@"model.mil"] atomically:YES];
+                if (weightData)
+                    [weightData writeToFile:[td stringByAppendingPathComponent:@"weights/weight.bin"] atomically:YES];
+                e = nil;
+            }
+        }
     }
+
+    if (!compiled) {
+        if (!((BOOL(*)(id,SEL,unsigned int,id,NSError**))objc_msgSend)(
+                mdl, @selector(compileWithQoS:options:error:), 21, @{}, &e)) {
+            fprintf(stderr, "ANE compile failed: %s\n", [[e description] UTF8String]);
+            [fm removeItemAtPath:td error:nil];
+            return NULL;
+        }
+        // Save to cache
+        if (g_ane_cache_dir) {
+            NSString *cached = [g_ane_cache_dir stringByAppendingPathComponent:hx];
+            [fm removeItemAtPath:cached error:nil];
+            [fm copyItemAtPath:td toPath:cached error:nil];
+        }
+    }
+
     if (!((BOOL(*)(id,SEL,unsigned int,id,NSError**))objc_msgSend)(
             mdl, @selector(loadWithQoS:options:error:), 21, @{}, &e)) {
         fprintf(stderr, "ANE load failed: %s\n", [[e description] UTF8String]);
@@ -139,6 +191,48 @@ static void ane_read_output(ANEKernel *k, int idx, void *data, size_t bytes) {
     IOSurfaceUnlock(k->ioOutputs[idx], kIOSurfaceLockReadOnly, NULL);
 }
 
+// Rebuild the ANERequest for kernel k using externally provided IOSurfaces.
+// Pass NULL for any surface to keep the kernel's own surface for that slot.
+// Call this after ane_compile to wire shared surfaces between kernels.
+// Used for: activation chaining, gradient routing, weight ping-pong (zero-copy).
+static void ane_rewire(ANEKernel *k, IOSurfaceRef *ins, IOSurfaceRef *outs) {
+    // Swap in caller-provided surfaces (retain new, release old)
+    for (int i = 0; i < k->nInputs; i++) {
+        if (ins && ins[i]) {
+            IOSurfaceRef old = k->ioInputs[i];
+            k->ioInputs[i] = ins[i];
+            CFRetain(ins[i]);
+            CFRelease(old);
+        }
+    }
+    for (int i = 0; i < k->nOutputs; i++) {
+        if (outs && outs[i]) {
+            IOSurfaceRef old = k->ioOutputs[i];
+            k->ioOutputs[i] = outs[i];
+            CFRetain(outs[i]);
+            CFRelease(old);
+        }
+    }
+    // Rebuild request with updated surfaces
+    NSMutableArray *wIns = [NSMutableArray arrayWithCapacity:k->nInputs];
+    NSMutableArray *iIdx = [NSMutableArray arrayWithCapacity:k->nInputs];
+    for (int i = 0; i < k->nInputs; i++) {
+        [wIns addObject:((id(*)(Class,SEL,IOSurfaceRef))objc_msgSend)(
+            g_ANEIO, @selector(objectWithIOSurface:), k->ioInputs[i])];
+        [iIdx addObject:@(i)];
+    }
+    NSMutableArray *wOuts = [NSMutableArray arrayWithCapacity:k->nOutputs];
+    NSMutableArray *oIdx  = [NSMutableArray arrayWithCapacity:k->nOutputs];
+    for (int i = 0; i < k->nOutputs; i++) {
+        [wOuts addObject:((id(*)(Class,SEL,IOSurfaceRef))objc_msgSend)(
+            g_ANEIO, @selector(objectWithIOSurface:), k->ioOutputs[i])];
+        [oIdx addObject:@(i)];
+    }
+    k->request = ((id(*)(Class,SEL,id,id,id,id,id,id,id))objc_msgSend)(
+        g_ANEReq, @selector(requestWithInputs:inputIndices:outputs:outputIndices:weightsBuffer:perfStats:procedureIndex:),
+        wIns, iIdx, wOuts, oIdx, nil, nil, @0);
+}
+
 static bool ane_eval(ANEKernel *k) {
     NSError *e = nil;
     BOOL ok = ((BOOL(*)(id,SEL,unsigned int,id,id,NSError**))objc_msgSend)(
@@ -163,3 +257,4 @@ static void ane_free(ANEKernel *k) {
     free(k->inputBytes); free(k->outputBytes);
     free(k);
 }
+
