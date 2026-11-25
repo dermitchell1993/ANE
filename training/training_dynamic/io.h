@@ -324,24 +324,29 @@ static void free_per_layer(PerLayerSurfaces *pls, PerLayerRequests *plr) {
     }
 }
 
-// GQA helpers: tile KV from KV_HEADS to HEADS, and reduce HEADS to KV_HEADS
+// GQA helpers: tile KV from KV_HEADS to HEADS, and reduce HEADS to KV_HEADS.
+// CONVENTION: q-head q maps to kv-head (q % KV_HEADS) — i.e. the tiled head
+// order is [kv0..kvN-1, kv0..kvN-1, ...] (GQA_RATIO whole copies). This MUST
+// match the forward kernel, which tiles with concat(interleave=false) over
+// GQA_RATIO copies of k_rope (mil_dynamic.h). The earlier block layout
+// (q_head = kv*GQA_RATIO + r) disagreed with the forward and produced silently
+// wrong K/V gradients for any GQA_RATIO>1 model (e.g. qwen3_06b).
 // tile_kv: input [KV_DIM, SEQ], output [Q_DIM, SEQ]
-// Each KV head is duplicated GQA_RATIO times
 static void gqa_tile_kv(float *out, const float *in, int seq) {
-    for (int kv = 0; kv < KV_HEADS; kv++) {
-        for (int r = 0; r < GQA_RATIO; r++) {
-            int q_head = kv * GQA_RATIO + r;
+    for (int r = 0; r < GQA_RATIO; r++) {
+        for (int kv = 0; kv < KV_HEADS; kv++) {
+            int q_head = r * KV_HEADS + kv;
             memcpy(out + q_head * HD * seq, in + kv * HD * seq, HD * seq * sizeof(float));
         }
     }
 }
 // reduce_kv: input [Q_DIM, SEQ], output [KV_DIM, SEQ]
-// Sum contributions from Q heads sharing each KV head
+// Sum contributions from Q heads sharing each KV head (interleaved: q % KV_HEADS)
 static void gqa_reduce_kv(float *out, const float *in, int seq) {
     memset(out, 0, KV_DIM * seq * sizeof(float));
-    for (int kv = 0; kv < KV_HEADS; kv++) {
-        for (int r = 0; r < GQA_RATIO; r++) {
-            int q_head = kv * GQA_RATIO + r;
+    for (int r = 0; r < GQA_RATIO; r++) {
+        for (int kv = 0; kv < KV_HEADS; kv++) {
+            int q_head = r * KV_HEADS + kv;
             const float *src = in + q_head * HD * seq;
             float *dst = out + kv * HD * seq;
             for (int i = 0; i < HD * seq; i++)
